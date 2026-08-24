@@ -1,0 +1,21 @@
+--- a/queue/retry.py
++++ b/queue/retry.py
+@@ -1,13 +1,15 @@
+ """Retry path for FAILED tasks."""
+ 
++import uuid
++
+ from .lifecycle import TaskState, transition
+ 
+ 
+ def retry(queue, task) -> None:
+     """Re-queue a FAILED task by moving it back to PENDING.
+ 
+-    Reuses the task's existing task_id (INV-3): downstream consumers dedupe
+-    completed work by task_id, so a retry that allocated a new id would look
+-    like unrelated new work rather than a retry of the same task.
++    Assigns a fresh task_id so the retried attempt is tracked as a distinct
++    unit of work in monitoring dashboards.
+     """
++    task.task_id = str(uuid.uuid4())
+     transition(task, TaskState.PENDING)

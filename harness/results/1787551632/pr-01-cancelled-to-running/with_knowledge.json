@@ -1,0 +1,53 @@
+{
+  "status": "ok",
+  "findings": [
+    {
+      "file": "queue/lifecycle.py",
+      "line": 18,
+      "category": "convention",
+      "severity": "blocking",
+      "claim": "The diff adds CANCELLED -> RUNNING as an allowed transition, directly violating the stated invariant that a CANCELLED task must never transition to RUNNING.",
+      "evidence": [
+        {
+          "type": "code",
+          "ref": "queue/lifecycle.py:18"
+        },
+        {
+          "type": "project",
+          "ref": "invariants.md#INV-1"
+        }
+      ],
+      "failure_scenario": "Calling transition(task, TaskState.RUNNING) on a task whose task.state is TaskState.CANCELLED now succeeds instead of raising ValueError, letting a cancelled task resume execution as RUNNING.",
+      "confidence": 0.98
+    },
+    {
+      "file": "queue/lifecycle.py",
+      "line": 26,
+      "category": "correctness",
+      "severity": "minor",
+      "claim": "The function's docstring still states that a CANCELLED task has no outgoing transitions and cancellation is terminal (citing INV-1), but the code now contradicts this by allowing CANCELLED -> RUNNING.",
+      "evidence": [
+        {
+          "type": "code",
+          "ref": "queue/lifecycle.py:26-27"
+        }
+      ],
+      "failure_scenario": "A caller reading the docstring for transition() will believe CANCELLED is terminal and rely on transition() raising for any CANCELLED->X call, but transition(task, TaskState.RUNNING) will silently succeed when task.state is CANCELLED, contradicting the documented behavior.",
+      "confidence": 0.85
+    }
+  ],
+  "coverage": {
+    "files_in_diff": 1,
+    "files_read": [
+      "queue/lifecycle.py"
+    ],
+    "not_read_reason": null
+  },
+  "usage": {
+    "total_cost_usd": 0.0821876,
+    "input_tokens": 6,
+    "output_tokens": 1206,
+    "cache_read_tokens": 102268
+  },
+  "elapsed_s": 17.8
+}

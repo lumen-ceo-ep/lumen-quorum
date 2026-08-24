@@ -1,0 +1,21 @@
+--- a/queue/enqueue.py
++++ b/queue/enqueue.py
+@@ -32,3 +32,18 @@
+     task = Task(task_id=task_id, priority=priority, state=TaskState.PENDING)
+     queue.append(task)
+     return task
++
++
++def enqueue_bulk(queue, items):
++    """Enqueue multiple (task_id, priority) tasks.
++
++    Validates every priority up front, before adding any task, so a bad
++    entry anywhere in the batch leaves the queue unchanged rather than
++    partially applied.
++    """
++    for task_id, priority in items:
++        if not (MIN_PRIORITY <= priority <= MAX_PRIORITY):
++            raise InvalidPriorityError(
++                f"priority {priority} outside [{MIN_PRIORITY}, {MAX_PRIORITY}]"
++            )
++    return [enqueue(queue, task_id, priority) for task_id, priority in items]

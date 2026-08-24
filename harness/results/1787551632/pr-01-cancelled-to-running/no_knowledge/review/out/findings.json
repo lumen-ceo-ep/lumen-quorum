@@ -1,0 +1,35 @@
+{
+  "status": "ok",
+  "findings": [
+    {
+      "file": "queue/lifecycle.py",
+      "line": 18,
+      "category": "correctness",
+      "severity": "blocking",
+      "claim": "The new CANCELLED -> RUNNING transition contradicts the function's own documented terminal-state invariant (INV-1) stated in the docstring just below it.",
+      "evidence": [
+        {
+          "type": "code",
+          "ref": "queue/lifecycle.py:26"
+        }
+      ],
+      "failure_scenario": "A caller cancels a task via transition(task, TaskState.CANCELLED), relying on the documented guarantee that 'A CANCELLED task has no outgoing transitions: cancellation is terminal (INV-1)' (lifecycle.py:26-27). With this diff, a later transition(task, TaskState.RUNNING) call now succeeds instead of raising ValueError, so a task believed permanently stopped can be re-activated and executed -- e.g. a worker that cancelled a task to free resources, then later re-dispatches it, unaware that cancellation is no longer terminal.",
+      "confidence": 0.85
+    }
+  ],
+  "coverage": {
+    "files_in_diff": 1,
+    "files_read": [
+      "queue/lifecycle.py",
+      "queue/retry.py",
+      "queue/enqueue.py"
+    ],
+    "not_read_reason": null
+  },
+  "usage": {
+    "total_cost_usd": 0.11166699999999999,
+    "input_tokens": 10,
+    "output_tokens": 1936,
+    "cache_read_tokens": 179755
+  }
+}

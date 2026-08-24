@@ -1,0 +1,35 @@
+{
+  "status": "ok",
+  "findings": [
+    {
+      "file": "queue/enqueue.py",
+      "line": 29,
+      "category": "correctness",
+      "severity": "blocking",
+      "claim": "The change silently clamps out-of-range priorities instead of raising InvalidPriorityError, directly contradicting the invariant (INV-2) documented in the function's own docstring immediately above it, which states the invariant exists specifically to prevent a caller from believing a request for priority 9 was honored when it was actually capped.",
+      "evidence": [
+        {
+          "type": "code",
+          "ref": "queue/enqueue.py:23-27"
+        }
+      ],
+      "failure_scenario": "enqueue(queue, 't1', 99) now returns a Task with priority=9 and no error, whereas a caller relying on the documented contract (and the still-present InvalidPriorityError class) would expect an exception; a caller that intended priority 99 as a signal of misconfiguration gets silently treated as priority 9 with no indication the value was altered.",
+      "confidence": 0.9
+    }
+  ],
+  "coverage": {
+    "files_in_diff": 1,
+    "files_read": [
+      "queue/enqueue.py",
+      "queue/__init__.py"
+    ],
+    "not_read_reason": null
+  },
+  "usage": {
+    "total_cost_usd": 0.133723,
+    "input_tokens": 16,
+    "output_tokens": 2059,
+    "cache_read_tokens": 294790
+  },
+  "elapsed_s": 35.0
+}

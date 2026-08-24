@@ -1,0 +1,143 @@
+{
+  "model": "claude-sonnet-5",
+  "totals": {
+    "no_knowledge": {
+      "tp": 4,
+      "fn": 0,
+      "fp": 1
+    },
+    "with_knowledge": {
+      "tp": 4,
+      "fn": 0,
+      "fp": 1
+    }
+  },
+  "rows": [
+    {
+      "pr": "pr-01-cancelled-to-running",
+      "no_knowledge": {
+        "true_positive": 1,
+        "false_negative": 0,
+        "false_positive": 0,
+        "matched_on": [
+          "The new CANCELLED -> RUNNING transition contradicts the function's own documented terminal-state invariant (INV-1) stated in the docstring just below it."
+        ],
+        "cost_usd": 0.11166699999999999
+      },
+      "with_knowledge": {
+        "true_positive": 1,
+        "false_negative": 0,
+        "false_positive": 0,
+        "matched_on": [
+          "The diff adds CANCELLED -> RUNNING as an allowed transition, directly violating the stated invariant that a CANCELLED task must never transition to RUNNING."
+        ],
+        "cost_usd": 0.0821876
+      }
+    },
+    {
+      "pr": "pr-02-priority-clamp",
+      "no_knowledge": {
+        "true_positive": 1,
+        "false_negative": 0,
+        "false_positive": 0,
+        "matched_on": [
+          "The change silently clamps out-of-range priorities instead of raising InvalidPriorityError, directly contradicting the invariant (INV-2) documented in the function's own docstring immediately above it, which states the invariant exists specifically to prevent a caller from believing a request for priority 9 was honored when it was actually capped."
+        ],
+        "cost_usd": 0.133723
+      },
+      "with_knowledge": {
+        "true_positive": 1,
+        "false_negative": 0,
+        "false_positive": 0,
+        "matched_on": [
+          "enqueue() now silently clamps out-of-range priority instead of rejecting it, violating INV-2."
+        ],
+        "cost_usd": 0.0683102
+      }
+    },
+    {
+      "pr": "pr-03-retry-new-id",
+      "no_knowledge": {
+        "true_positive": 1,
+        "false_negative": 0,
+        "false_positive": 0,
+        "matched_on": [
+          "Reassigning task_id on retry breaks downstream dedup of completed work, which the codebase's own prior documentation (INV-3) explicitly says relies on task_id being stable across a retry."
+        ],
+        "cost_usd": 0.1214736
+      },
+      "with_knowledge": {
+        "true_positive": 1,
+        "false_negative": 0,
+        "false_positive": 0,
+        "matched_on": [
+          "retry() now assigns a new random task_id instead of reusing the original, directly violating the documented retry-dedup contract."
+        ],
+        "cost_usd": 0.0754664
+      }
+    },
+    {
+      "pr": "pr-04-clean-refactor",
+      "no_knowledge": {
+        "true_positive": 0,
+        "false_negative": 0,
+        "false_positive": 0,
+        "matched_on": [],
+        "cost_usd": 0.061954
+      },
+      "with_knowledge": {
+        "true_positive": 0,
+        "false_negative": 0,
+        "false_positive": 0,
+        "matched_on": [],
+        "cost_usd": 0.06602300000000001
+      }
+    },
+    {
+      "pr": "pr-05-dequeue-empty-crash",
+      "no_knowledge": {
+        "true_positive": 1,
+        "false_negative": 0,
+        "false_positive": 0,
+        "matched_on": [
+          "dequeue crashes with an unhandled ValueError from max() when there are no PENDING tasks in the queue."
+        ],
+        "cost_usd": 0.10076280000000001
+      },
+      "with_knowledge": {
+        "true_positive": 1,
+        "false_negative": 0,
+        "false_positive": 0,
+        "matched_on": [
+          "dequeue() crashes with an unhandled ValueError when the queue is empty or contains no PENDING tasks, instead of returning None or raising a descriptive error."
+        ],
+        "cost_usd": 0.1213346
+      }
+    },
+    {
+      "pr": "pr-06-bulk-enqueue-false-positive-trap",
+      "no_knowledge": {
+        "true_positive": 0,
+        "false_negative": 0,
+        "false_positive": 1,
+        "matched_on": [
+          "If items is a single-use iterator (e.g. a generator expression or map object), the validation loop exhausts it, so the subsequent list comprehension iterates over nothing and silently enqueues zero tasks instead of raising or enqueuing all items."
+        ],
+        "cost_usd": 0.133511
+      },
+      "with_knowledge": {
+        "true_positive": 0,
+        "false_negative": 0,
+        "false_positive": 1,
+        "matched_on": [
+          "enqueue_bulk iterates `items` twice, so passing a one-shot iterator (e.g. a generator expression) silently enqueues nothing after validation succeeds."
+        ],
+        "cost_usd": 0.1387962
+      }
+    }
+  ],
+  "lift": {
+    "precision": 0.0,
+    "recall": 0.0
+  }
+}

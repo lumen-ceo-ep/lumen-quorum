@@ -1,0 +1,39 @@
+{
+  "status": "ok",
+  "findings": [
+    {
+      "file": "queue/retry.py",
+      "line": 10,
+      "category": "convention",
+      "severity": "blocking",
+      "claim": "retry() assigns a brand-new task_id via uuid4 instead of reusing the original id, violating the retry-semantics invariant that downstream consumers rely on for deduplication.",
+      "evidence": [
+        {
+          "type": "code",
+          "ref": "queue/retry.py:10"
+        },
+        {
+          "type": "project",
+          "ref": "invariants.md#INV-3"
+        }
+      ],
+      "failure_scenario": "A FAILED task with task_id 'abc123' is retried; task.task_id becomes a fresh uuid (e.g. 'f47ac10b-...'), so a downstream consumer that dedupes on task_id no longer recognizes the retried attempt as the same task and processes it as a distinct one, breaking dedupe/tracking for that task.",
+      "confidence": 0.98
+    }
+  ],
+  "coverage": {
+    "files_in_diff": 1,
+    "files_read": [
+      "queue/retry.py",
+      "queue/lifecycle.py"
+    ],
+    "not_read_reason": null
+  },
+  "usage": {
+    "total_cost_usd": 0.0697868,
+    "input_tokens": 4,
+    "output_tokens": 743,
+    "cache_read_tokens": 63929
+  },
+  "elapsed_s": 17.9
+}

@@ -1,0 +1,15 @@
+--- a/queue/enqueue.py
++++ b/queue/enqueue.py
+@@ -25,10 +25,8 @@
+     would let a caller believe a request for priority 9 was honored when it
+     was actually capped (INV-2).
+     """
+-    if not (MIN_PRIORITY <= priority <= MAX_PRIORITY):
+-        raise InvalidPriorityError(
+-            f"priority {priority} outside [{MIN_PRIORITY}, {MAX_PRIORITY}]"
+-        )
++    # Clamp out-of-range priorities instead of rejecting the request.
++    priority = max(MIN_PRIORITY, min(MAX_PRIORITY, priority))
+     task = Task(task_id=task_id, priority=priority, state=TaskState.PENDING)
+     queue.append(task)
+     return task

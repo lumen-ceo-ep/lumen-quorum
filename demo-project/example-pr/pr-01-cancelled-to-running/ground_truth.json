@@ -1,0 +1,11 @@
+{
+  "expected_findings": [
+    {
+      "file": "queue/lifecycle.py",
+      "category": "correctness",
+      "min_severity": "blocking",
+      "cites": ["INV-1"],
+      "reason": "CANCELLED is no longer terminal; a cancelled task can be moved back to RUNNING"
+    }
+  ]
+}

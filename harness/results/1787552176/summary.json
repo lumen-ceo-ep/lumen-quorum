@@ -1,0 +1,133 @@
+{
+  "model": "claude-sonnet-5",
+  "totals": {
+    "no_knowledge": {
+      "tp": 1,
+      "fn": 3,
+      "fp": 0
+    },
+    "with_knowledge": {
+      "tp": 4,
+      "fn": 0,
+      "fp": 0
+    }
+  },
+  "rows": [
+    {
+      "pr": "pr-01-cancelled-to-running",
+      "no_knowledge": {
+        "true_positive": 0,
+        "false_negative": 1,
+        "false_positive": 0,
+        "matched_on": [],
+        "cost_usd": 0.21896600000000002
+      },
+      "with_knowledge": {
+        "true_positive": 1,
+        "false_negative": 0,
+        "false_positive": 0,
+        "matched_on": [
+          "The diff adds CANCELLED -> RUNNING to the allowed-transition table, letting a cancelled task be transitioned to RUNNING via transition(), which violates the stated lifecycle invariant that CANCELLED must never transition to RUNNING."
+        ],
+        "cost_usd": 0.0675796
+      }
+    },
+    {
+      "pr": "pr-02-priority-clamp",
+      "no_knowledge": {
+        "true_positive": 0,
+        "false_negative": 1,
+        "false_positive": 0,
+        "matched_on": [],
+        "cost_usd": 0.11676399999999999
+      },
+      "with_knowledge": {
+        "true_positive": 1,
+        "false_negative": 0,
+        "false_positive": 0,
+        "matched_on": [
+          "enqueue() now silently clamps out-of-range priority instead of rejecting it, violating INV-2."
+        ],
+        "cost_usd": 0.0665692
+      }
+    },
+    {
+      "pr": "pr-03-retry-new-id",
+      "no_knowledge": {
+        "true_positive": 0,
+        "false_negative": 1,
+        "false_positive": 0,
+        "matched_on": [],
+        "cost_usd": 0.10985640000000002
+      },
+      "with_knowledge": {
+        "true_positive": 1,
+        "false_negative": 0,
+        "false_positive": 0,
+        "matched_on": [
+          "retry() assigns a brand-new task_id via uuid4 instead of reusing the original id, violating the retry-semantics invariant that downstream consumers rely on for deduplication."
+        ],
+        "cost_usd": 0.0697868
+      }
+    },
+    {
+      "pr": "pr-04-clean-refactor",
+      "no_knowledge": {
+        "true_positive": 0,
+        "false_negative": 0,
+        "false_positive": 0,
+        "matched_on": [],
+        "cost_usd": 0.070495
+      },
+      "with_knowledge": {
+        "true_positive": 0,
+        "false_negative": 0,
+        "false_positive": 0,
+        "matched_on": [],
+        "cost_usd": 0.07229020000000001
+      }
+    },
+    {
+      "pr": "pr-05-dequeue-empty-crash",
+      "no_knowledge": {
+        "true_positive": 1,
+        "false_negative": 0,
+        "false_positive": 0,
+        "matched_on": [
+          "dequeue crashes with an unhandled ValueError when there are no PENDING tasks in the queue."
+        ],
+        "cost_usd": 0.1008044
+      },
+      "with_knowledge": {
+        "true_positive": 1,
+        "false_negative": 0,
+        "false_positive": 0,
+        "matched_on": [
+          "dequeue() calls max() on the pending list without checking for emptiness, so it raises an unhandled ValueError instead of returning a defined result when there is no PENDING task to dequeue."
+        ],
+        "cost_usd": 0.11515100000000002
+      }
+    },
+    {
+      "pr": "pr-06-bulk-enqueue-false-positive-trap",
+      "no_knowledge": {
+        "true_positive": 0,
+        "false_negative": 0,
+        "false_positive": 0,
+        "matched_on": [],
+        "cost_usd": 0.09770500000000001
+      },
+      "with_knowledge": {
+        "true_positive": 0,
+        "false_negative": 0,
+        "false_positive": 0,
+        "matched_on": [],
+        "cost_usd": 0.11602240000000001
+      }
+    }
+  ],
+  "lift": {
+    "precision": 0.0,
+    "recall": 0.75
+  }
+}

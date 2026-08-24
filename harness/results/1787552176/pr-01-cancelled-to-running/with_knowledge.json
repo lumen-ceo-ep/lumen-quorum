@@ -1,0 +1,38 @@
+{
+  "status": "ok",
+  "findings": [
+    {
+      "file": "queue/lifecycle.py",
+      "line": 18,
+      "category": "convention",
+      "severity": "blocking",
+      "claim": "The diff adds CANCELLED -> RUNNING to the allowed-transition table, letting a cancelled task be transitioned to RUNNING via transition(), which violates the stated lifecycle invariant that CANCELLED must never transition to RUNNING.",
+      "evidence": [
+        {
+          "type": "code",
+          "ref": "queue/lifecycle.py:18"
+        },
+        {
+          "type": "project",
+          "ref": "invariants.md#INV-1"
+        }
+      ],
+      "failure_scenario": "task.state = TaskState.CANCELLED; transition(task, TaskState.RUNNING) now succeeds (previously raised ValueError) and sets task.state = TaskState.RUNNING, re-activating a cancelled task in violation of INV-1.",
+      "confidence": 0.98
+    }
+  ],
+  "coverage": {
+    "files_in_diff": 1,
+    "files_read": [
+      "queue/lifecycle.py"
+    ],
+    "not_read_reason": null
+  },
+  "usage": {
+    "total_cost_usd": 0.0675796,
+    "input_tokens": 4,
+    "output_tokens": 628,
+    "cache_read_tokens": 63963
+  },
+  "elapsed_s": 12.7
+}

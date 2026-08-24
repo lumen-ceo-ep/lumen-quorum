@@ -1,0 +1,45 @@
+{
+  "status": "ok",
+  "findings": [
+    {
+      "file": "queue/lifecycle.py",
+      "line": 18,
+      "category": "correctness",
+      "severity": "major",
+      "claim": "CANCELLED is allowed to transition directly to RUNNING, unlike the FAILED recovery path which must pass back through PENDING, letting a cancelled task resume execution without ever re-entering the queue.",
+      "evidence": [
+        {
+          "type": "code",
+          "ref": "queue/lifecycle.py:18"
+        },
+        {
+          "type": "code",
+          "ref": "queue/lifecycle.py:19"
+        },
+        {
+          "type": "code",
+          "ref": "queue/enqueue.py:20-28"
+        }
+      ],
+      "failure_scenario": "A task is enqueue()'d (PENDING), moved to RUNNING, then to CANCELLED. Later, transition(task, TaskState.RUNNING) is called directly (now permitted by line 18). This sets task.state = RUNNING without the task ever being re-appended to the queue or re-validated by enqueue()'s priority check, unlike FAILED tasks which must go through PENDING (line 19) -- the only path that re-enters the queue. The task's state now claims RUNNING while it is absent from the actual queue list, so it can never be picked up or completed through the normal queue flow.",
+      "confidence": 0.55
+    }
+  ],
+  "coverage": {
+    "files_in_diff": 1,
+    "files_read": [
+      "queue/lifecycle.py",
+      "queue/retry.py",
+      "queue/enqueue.py",
+      "queue/__init__.py"
+    ],
+    "not_read_reason": null
+  },
+  "usage": {
+    "total_cost_usd": 0.21896600000000002,
+    "input_tokens": 22,
+    "output_tokens": 6086,
+    "cache_read_tokens": 423615
+  },
+  "elapsed_s": 93.6
+}

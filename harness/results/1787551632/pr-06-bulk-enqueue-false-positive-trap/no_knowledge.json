@@ -1,0 +1,39 @@
+{
+  "status": "ok",
+  "findings": [
+    {
+      "file": "queue/enqueue.py",
+      "line": 44,
+      "category": "correctness",
+      "severity": "major",
+      "claim": "If items is a single-use iterator (e.g. a generator expression or map object), the validation loop exhausts it, so the subsequent list comprehension iterates over nothing and silently enqueues zero tasks instead of raising or enqueuing all items.",
+      "evidence": [
+        {
+          "type": "code",
+          "ref": "queue/enqueue.py:44"
+        },
+        {
+          "type": "code",
+          "ref": "queue/enqueue.py:49"
+        }
+      ],
+      "failure_scenario": "Calling enqueue_bulk(queue, (( f'task-{i}', 5) for i in range(3))) with a generator: the `for task_id, priority in items` validation loop at line 44 consumes all 3 tuples and confirms they're valid, but by the time the return statement's list comprehension at line 49 runs, `items` is already exhausted, so it returns [] and the queue is left with no new tasks added -- silently, with no exception raised, even though every input priority was valid.",
+      "confidence": 0.75
+    }
+  ],
+  "coverage": {
+    "files_in_diff": 1,
+    "files_read": [
+      "queue/enqueue.py",
+      "queue/lifecycle.py"
+    ],
+    "not_read_reason": null
+  },
+  "usage": {
+    "total_cost_usd": 0.133511,
+    "input_tokens": 14,
+    "output_tokens": 2104,
+    "cache_read_tokens": 259410
+  },
+  "elapsed_s": 34.1
+}

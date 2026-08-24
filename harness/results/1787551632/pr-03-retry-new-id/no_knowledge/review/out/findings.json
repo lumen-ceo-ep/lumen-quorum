@@ -1,0 +1,39 @@
+{
+  "status": "ok",
+  "findings": [
+    {
+      "file": "queue/retry.py",
+      "line": 14,
+      "category": "correctness",
+      "severity": "blocking",
+      "claim": "Reassigning task_id on retry breaks downstream dedup of completed work, which the codebase's own prior documentation (INV-3) explicitly says relies on task_id being stable across a retry.",
+      "evidence": [
+        {
+          "type": "code",
+          "ref": "queue/retry.py:14"
+        },
+        {
+          "type": "code",
+          "ref": "queue/lifecycle.py:19"
+        }
+      ],
+      "failure_scenario": "A task with task_id 'abc' fails and is retried, getting a new task_id 'xyz'; if any downstream consumer (or the original 'abc' entry already recorded as failed/attempted) dedupes by task_id, the retried attempt under 'xyz' is now indistinguishable from unrelated new work, so a consumer that previously recognized 'abc' as still in-flight/failed will not connect it to the eventual completion under 'xyz', and side effects tied to task identity (e.g., idempotency keys, completion tracking) can run twice or be double-counted as separate tasks instead of one retried task.",
+      "confidence": 0.75
+    }
+  ],
+  "coverage": {
+    "files_in_diff": 1,
+    "files_read": [
+      "queue/retry.py",
+      "queue/lifecycle.py",
+      "queue/enqueue.py"
+    ],
+    "not_read_reason": null
+  },
+  "usage": {
+    "total_cost_usd": 0.1214736,
+    "input_tokens": 12,
+    "output_tokens": 2158,
+    "cache_read_tokens": 218073
+  }
+}

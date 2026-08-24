@@ -1,0 +1,57 @@
+{
+  "status": "ok",
+  "findings": [
+    {
+      "file": "queue/enqueue.py",
+      "line": 29,
+      "category": "convention",
+      "severity": "blocking",
+      "claim": "enqueue() now silently clamps out-of-range priority instead of rejecting it, violating INV-2.",
+      "evidence": [
+        {
+          "type": "code",
+          "ref": "queue/enqueue.py:20-29"
+        },
+        {
+          "type": "project",
+          "ref": "invariants.md#INV-2"
+        }
+      ],
+      "failure_scenario": "A caller invokes enqueue(queue, 't1', 15) expecting rejection per the documented contract; instead the task is silently enqueued with priority=9, so the caller believes priority 15 was accepted/honored when it was actually capped.",
+      "confidence": 0.98
+    },
+    {
+      "file": "queue/enqueue.py",
+      "line": 21,
+      "category": "convention",
+      "severity": "minor",
+      "claim": "The function's docstring still states priority is 'rejected outright rather than clamped' and cites INV-2, but the code beneath it now does the opposite, leaving stale/contradictory documentation.",
+      "evidence": [
+        {
+          "type": "code",
+          "ref": "queue/enqueue.py:23-26"
+        },
+        {
+          "type": "project",
+          "ref": "invariants.md#INV-2"
+        }
+      ],
+      "failure_scenario": null,
+      "confidence": 0.9
+    }
+  ],
+  "coverage": {
+    "files_in_diff": 1,
+    "files_read": [
+      "queue/enqueue.py"
+    ],
+    "not_read_reason": null
+  },
+  "usage": {
+    "total_cost_usd": 0.0683102,
+    "input_tokens": 4,
+    "output_tokens": 725,
+    "cache_read_tokens": 64011
+  },
+  "elapsed_s": 11.2
+}

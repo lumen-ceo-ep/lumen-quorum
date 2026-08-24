@@ -1,0 +1,11 @@
+{
+  "expected_findings": [
+    {
+      "file": "queue/dequeue.py",
+      "category": "correctness",
+      "min_severity": "major",
+      "cites": [],
+      "reason": "max() on an empty pending list raises an unhandled ValueError instead of a clear empty-queue signal; not covered by any documented invariant, tests general reasoning rather than corpus pattern-matching"
+    }
+  ]
+}

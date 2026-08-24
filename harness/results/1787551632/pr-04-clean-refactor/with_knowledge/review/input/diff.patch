@@ -1,0 +1,13 @@
+--- a/queue/lifecycle.py
++++ b/queue/lifecycle.py
+@@ -26,8 +26,8 @@
+     A CANCELLED task has no outgoing transitions: cancellation is terminal
+     (INV-1). Raises ValueError on a disallowed transition.
+     """
+-    allowed = _ALLOWED_TRANSITIONS.get(task.state, set())
+-    if new_state not in allowed:
++    allowed_next_states = _ALLOWED_TRANSITIONS.get(task.state, set())
++    if new_state not in allowed_next_states:
+         raise ValueError(
+             f"cannot transition task {task.task_id} from {task.state} to {new_state}"
+         )

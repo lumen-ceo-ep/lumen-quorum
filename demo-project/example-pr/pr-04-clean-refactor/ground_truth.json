@@ -1,0 +1,4 @@
+{
+  "expected_findings": [],
+  "note": "pure rename, no behavior change; any blocking/major finding here is a false positive"
+}

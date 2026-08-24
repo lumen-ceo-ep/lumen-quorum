@@ -1,0 +1,48 @@
+{
+  "status": "ok",
+  "findings": [
+    {
+      "file": "queue/enqueue.py",
+      "line": 44,
+      "category": "correctness",
+      "severity": "major",
+      "claim": "enqueue_bulk iterates `items` twice, so passing a one-shot iterator (e.g. a generator expression) silently enqueues nothing after validation succeeds.",
+      "evidence": [
+        {
+          "type": "code",
+          "ref": "queue/enqueue.py:44-49"
+        }
+      ],
+      "failure_scenario": "enqueue_bulk(queue, (row for row in rows)) with all valid priorities: the validation loop at line 44 consumes the generator entirely, then the list comprehension at line 49 iterates an exhausted generator, returns [] and leaves queue unmodified, with no exception raised even though every input was valid.",
+      "confidence": 0.72
+    },
+    {
+      "file": "queue/enqueue.py",
+      "line": 44,
+      "category": "simplification",
+      "severity": "minor",
+      "claim": "The priority-range check in enqueue_bulk's pre-validation loop duplicates the identical check already performed inside enqueue().",
+      "evidence": [
+        {
+          "type": "code",
+          "ref": "queue/enqueue.py:28-31"
+        }
+      ],
+      "failure_scenario": null,
+      "confidence": 0.55
+    }
+  ],
+  "coverage": {
+    "files_in_diff": 1,
+    "files_read": [
+      "queue/enqueue.py"
+    ],
+    "not_read_reason": null
+  },
+  "usage": {
+    "total_cost_usd": 0.1387962,
+    "input_tokens": 10,
+    "output_tokens": 3869,
+    "cache_read_tokens": 184536
+  }
+}

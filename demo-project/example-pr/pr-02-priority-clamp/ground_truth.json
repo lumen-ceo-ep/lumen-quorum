@@ -1,0 +1,11 @@
+{
+  "expected_findings": [
+    {
+      "file": "queue/enqueue.py",
+      "category": "correctness",
+      "min_severity": "blocking",
+      "cites": ["INV-2"],
+      "reason": "out-of-range priority is silently clamped instead of rejected"
+    }
+  ]
+}

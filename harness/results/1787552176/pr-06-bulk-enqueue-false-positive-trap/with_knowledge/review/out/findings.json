@@ -1,0 +1,37 @@
+{
+  "status": "ok",
+  "findings": [
+    {
+      "file": "queue/enqueue.py",
+      "line": 40,
+      "category": "simplification",
+      "severity": "minor",
+      "claim": "enqueue_bulk re-implements the exact priority-range check already performed inside enqueue(), instead of reusing it.",
+      "evidence": [
+        {
+          "type": "code",
+          "ref": "queue/enqueue.py:22-25"
+        },
+        {
+          "type": "code",
+          "ref": "queue/enqueue.py:40-43"
+        }
+      ],
+      "failure_scenario": null,
+      "confidence": 0.7
+    }
+  ],
+  "coverage": {
+    "files_in_diff": 1,
+    "files_read": [
+      "queue/enqueue.py"
+    ],
+    "not_read_reason": null
+  },
+  "usage": {
+    "total_cost_usd": 0.11602240000000001,
+    "input_tokens": 10,
+    "output_tokens": 2127,
+    "cache_read_tokens": 182322
+  }
+}

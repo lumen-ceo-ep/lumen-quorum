@@ -1,0 +1,4 @@
+{
+  "expected_findings": [],
+  "note": "enqueue_bulk validates every priority before writing anything; it looks structurally different from enqueue()'s inline check but is not a validation gap. Any blocking/major correctness finding claiming missing validation here is a false positive."
+}

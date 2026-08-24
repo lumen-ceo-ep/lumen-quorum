@@ -1,0 +1,38 @@
+{
+  "status": "ok",
+  "findings": [
+    {
+      "file": "queue/retry.py",
+      "line": 13,
+      "category": "correctness",
+      "severity": "blocking",
+      "claim": "retry() now assigns a new random task_id instead of reusing the original, directly violating the documented retry-dedup contract.",
+      "evidence": [
+        {
+          "type": "code",
+          "ref": "queue/retry.py:13"
+        },
+        {
+          "type": "project",
+          "ref": "invariants.md#INV-3"
+        }
+      ],
+      "failure_scenario": "A task with task_id 'abc123' fails and retry(queue, task) is called; task.task_id is overwritten with a freshly generated uuid, so downstream consumers that dedupe completed work by task_id see the retried attempt as unrelated new work instead of a retry of 'abc123', breaking dedup and any tracking keyed on the original id.",
+      "confidence": 0.97
+    }
+  ],
+  "coverage": {
+    "files_in_diff": 1,
+    "files_read": [
+      "queue/retry.py",
+      "queue/lifecycle.py"
+    ],
+    "not_read_reason": null
+  },
+  "usage": {
+    "total_cost_usd": 0.0754664,
+    "input_tokens": 4,
+    "output_tokens": 1150,
+    "cache_read_tokens": 64022
+  }
+}
