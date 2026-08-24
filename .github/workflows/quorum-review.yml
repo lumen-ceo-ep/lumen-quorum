@@ -1,0 +1,69 @@
+name: Quorum Review
+
+# M1 scope: a single self-contained job reviewing changes to this repo's own
+# demo-project (the living, continuously-run demo of the product). Splitting into
+# a real matrix with per-node credential/permission isolation is M3+ (see
+# docs/roadmap.md) -- until then, this one job holds both read (node) and write
+# (posting) scope, which is a known, deliberate M1 simplification, not the target
+# end state described in docs/architecture.md sec. 5.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - "demo-project/codebase/**"
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: quorum-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Claude Code CLI
+        run: npm install -g @anthropic-ai/claude-code
+
+      - name: Build review input
+        run: |
+          python3 engine/orchestrator/build_review_input.py \
+            --base "${{ github.event.pull_request.base.sha }}" \
+            --head "${{ github.event.pull_request.head.sha }}" \
+            --project demo-project \
+            --out /tmp/quorum-review
+
+      - name: Run Claude node
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: python3 engine/adapters/claude/adapter.py /tmp/quorum-review claude-sonnet-5
+
+      - name: Post review
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 engine/orchestrator/post_review.py \
+            --findings /tmp/quorum-review/out/findings.json \
+            --repo "${{ github.repository }}" \
+            --pr "${{ github.event.pull_request.number }}"
+
+      - name: Upload run manifest
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: quorum-run-${{ github.event.pull_request.number }}-${{ github.run_id }}
+          path: /tmp/quorum-review
+          retention-days: 30
