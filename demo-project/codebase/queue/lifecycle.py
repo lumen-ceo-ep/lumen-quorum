@@ -15,7 +15,7 @@ _ALLOWED_TRANSITIONS = {
     TaskState.PENDING: {TaskState.RUNNING, TaskState.CANCELLED},
     TaskState.RUNNING: {TaskState.COMPLETED, TaskState.FAILED, TaskState.CANCELLED},
     TaskState.COMPLETED: set(),
-    TaskState.CANCELLED: set(),
+    TaskState.CANCELLED: {TaskState.RUNNING},  # allow re-activating a cancelled task
     TaskState.FAILED: {TaskState.PENDING},
 }
 
