@@ -1,0 +1,16 @@
+# Maps changed-file patterns to relevant knowledge docs (Tier 2 routing).
+# Synthetic — mirrors the shape a real project's routing table would have.
+
+routes:
+  - match: "queue/lifecycle*"
+    docs: [invariants.md#INV-1]
+  - match: "queue/enqueue*"
+    docs: [invariants.md#INV-2]
+  - match: "queue/retry*"
+    docs: [invariants.md#INV-3]
+
+always:
+  - constitution.md
+  - profile.yaml
+
+budget_tokens: 8000
