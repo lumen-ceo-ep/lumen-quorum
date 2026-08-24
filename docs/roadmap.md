@@ -15,6 +15,31 @@ what the demo project's own historical review comments caught) between the two r
 baseline, stop here.** Fix the knowledge layer, not the orchestration or the consensus
 mechanism — those only matter once the base case is proven.
 
+**Result (2026-08-24, `harness/results/1787552176/summary.json`): passed.**
+6 synthetic PRs (3 documented-invariant violations, 1 clean refactor, 1 general
+correctness bug unrelated to any documented rule, 1 correct-but-differently-structured
+function as a false-positive trap), `claude-sonnet-5`, real headless invocations.
+
+| condition | precision | recall | tp | fn | fp |
+|---|---|---|---|---|---|
+| no project knowledge | 1.00 | 0.25 | 1 | 3 | 0 |
+| with project knowledge | 1.00 | 1.00 | 4 | 0 | 0 |
+
+Lift: **recall +0.75**, precision unchanged (already 1.00 in both — the false-positive
+trap and the clean refactor were both correctly left unflagged even without knowledge).
+Without the knowledge base, all three documented-invariant violations were missed
+entirely; with it, all three were caught, correctly cited, and nothing spurious was
+added. Total cost for the 12-invocation run: ~$1.18.
+
+Caught and fixed one flawed run before this one: the first attempt embedded the
+invariant rationale directly in the demo codebase's own docstrings, so the "no
+knowledge" condition wasn't actually blind — see the `1787551632` run for the record.
+Also surfaced that the original false-positive-trap fixture had a genuine latent bug
+(`enqueue_bulk` iterated a generator argument twice); the model was right, the fixture
+was wrong, and the fixture was corrected rather than the result being discarded.
+
+**-> M1 is unblocked.**
+
 ## M1 — Single node, live
 
 The M0-validated node runs for real: a reusable GitHub Actions workflow, real inline PR
