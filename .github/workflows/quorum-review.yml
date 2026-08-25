@@ -48,7 +48,10 @@ jobs:
 
       - name: Run Claude node
         env:
+          # Either auth mode works: a metered API key, or a subscription-derived
+          # long-lived token from `claude setup-token`. Only one needs to be set.
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
         run: python3 engine/adapters/claude/adapter.py /tmp/quorum-review claude-sonnet-5
 
       - name: Post review
@@ -58,7 +61,8 @@ jobs:
           python3 engine/orchestrator/post_review.py \
             --findings /tmp/quorum-review/out/findings.json \
             --repo "${{ github.repository }}" \
-            --pr "${{ github.event.pull_request.number }}"
+            --pr "${{ github.event.pull_request.number }}" \
+            --api-base "${{ github.api_url }}"
 
       - name: Upload run manifest
         if: always()
