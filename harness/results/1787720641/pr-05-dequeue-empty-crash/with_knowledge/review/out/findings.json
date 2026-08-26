@@ -1,0 +1,37 @@
+{
+  "status": "ok",
+  "findings": [
+    {
+      "file": "queue/dequeue.py",
+      "line": 8,
+      "category": "correctness",
+      "severity": "blocking",
+      "claim": "dequeue() crashes with an unhandled ValueError when the queue is empty or contains no PENDING tasks, instead of failing gracefully or returning a documented sentinel.",
+      "evidence": [
+        {
+          "type": "code",
+          "ref": "queue/dequeue.py:7-8"
+        }
+      ],
+      "failure_scenario": "dequeue([]) -> pending = [] -> max(pending, key=lambda t: t.priority) raises 'ValueError: max() arg is an empty sequence', propagating an unhandled exception; the same crash occurs for a non-empty queue whose tasks are all RUNNING/COMPLETED/CANCELLED/FAILED (no PENDING tasks present).",
+      "confidence": 0.95
+    }
+  ],
+  "coverage": {
+    "files_in_diff": 1,
+    "files_read": [
+      "queue/dequeue.py",
+      "queue/lifecycle.py",
+      "queue/enqueue.py",
+      "queue/__init__.py"
+    ],
+    "not_read_reason": null
+  },
+  "language": "en",
+  "usage": {
+    "total_cost_usd": 0.1230324,
+    "input_tokens": 12,
+    "output_tokens": 1940,
+    "cache_read_tokens": 220472
+  }
+}

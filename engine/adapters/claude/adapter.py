@@ -115,6 +115,38 @@ def verify_coverage(review_dir: Path, coverage: dict) -> dict:
     return coverage
 
 
+def apply_evidence_gate(findings: list) -> tuple:
+    """Mechanically demotes findings that don't meet their category's evidence
+    requirement, rather than trusting the model followed the prompt's rules --
+    the prompt can ask, but only code can actually enforce (docs/architecture.md
+    sec. 2). Nothing is silently dropped: a demoted finding stays in the list,
+    visibly marked, with its reason recorded in the returned demotions list.
+
+    Returns (gated_findings, demotions).
+    """
+    gated = []
+    demotions = []
+    for finding in findings:
+        category = finding.get("category")
+        reason = None
+        if category == "convention":
+            evidence = finding.get("evidence") or []
+            if not any(e.get("type") == "project" for e in evidence):
+                reason = "convention finding cited no project-knowledge evidence"
+        elif category == "correctness":
+            if not finding.get("failure_scenario"):
+                reason = "correctness finding gave no concrete failure_scenario"
+
+        if reason:
+            finding = dict(finding)
+            finding["severity"] = "nit"
+            finding["claim"] = f"[evidence gate: {reason}] " + finding.get("claim", "")
+            demotions.append({"file": finding.get("file"), "line": finding.get("line"), "reason": reason})
+
+        gated.append(finding)
+    return gated, demotions
+
+
 def language_instruction(language: str) -> str:
     if language.lower() in ("en", "english"):
         return ""
@@ -244,6 +276,9 @@ def run(review_dir: Path, model: str) -> dict:
     findings_obj.setdefault("status", "ok")
     findings_obj.setdefault("findings", [])
     findings_obj["language"] = load_language(review_dir)
+    findings_obj["findings"], gate_demotions = apply_evidence_gate(findings_obj["findings"])
+    if gate_demotions:
+        findings_obj["evidence_gate_demotions"] = gate_demotions
     if "coverage" in findings_obj:
         findings_obj["coverage"] = verify_coverage(review_dir, findings_obj["coverage"])
     findings_obj["usage"] = {

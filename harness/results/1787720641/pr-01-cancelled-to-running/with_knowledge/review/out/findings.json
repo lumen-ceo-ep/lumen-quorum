@@ -1,0 +1,38 @@
+{
+  "status": "ok",
+  "findings": [
+    {
+      "file": "queue/lifecycle.py",
+      "line": 18,
+      "category": "correctness",
+      "severity": "blocking",
+      "claim": "The change allows a CANCELLED task to transition to RUNNING, violating the stated invariant that cancelled tasks must never run.",
+      "evidence": [
+        {
+          "type": "code",
+          "ref": "queue/lifecycle.py:18"
+        },
+        {
+          "type": "project",
+          "ref": "invariants.md#INV-1"
+        }
+      ],
+      "failure_scenario": "A task is CANCELLED, then transition(task, TaskState.RUNNING) is called (e.g. a delayed worker picks up a task that was cancelled after being dequeued but before execution) -> the transition succeeds and task.state becomes RUNNING, so a cancelled task actually executes, contradicting INV-1's guarantee that CANCELLED must never transition to RUNNING.",
+      "confidence": 0.97
+    }
+  ],
+  "coverage": {
+    "files_in_diff": 1,
+    "files_read": [
+      "queue/lifecycle.py"
+    ],
+    "not_read_reason": null
+  },
+  "language": "en",
+  "usage": {
+    "total_cost_usd": 0.08731380000000001,
+    "input_tokens": 8,
+    "output_tokens": 939,
+    "cache_read_tokens": 140354
+  }
+}

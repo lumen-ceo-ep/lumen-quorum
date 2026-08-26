@@ -181,5 +181,72 @@ class TestVerifyCoverage(unittest.TestCase):
             self.assertNotIn("mechanically_verified_missing", result)
 
 
+class TestApplyEvidenceGate(unittest.TestCase):
+    def test_convention_finding_with_project_evidence_passes_through(self):
+        findings = [{
+            "category": "convention", "severity": "blocking",
+            "evidence": [{"type": "project", "ref": "invariants.md#INV-1"}],
+            "claim": "violates INV-1",
+        }]
+        gated, demotions = adapter.apply_evidence_gate(findings)
+        self.assertEqual(gated[0]["severity"], "blocking")
+        self.assertEqual(demotions, [])
+
+    def test_convention_finding_without_project_evidence_is_demoted(self):
+        findings = [{
+            "category": "convention", "severity": "blocking",
+            "evidence": [{"type": "code", "ref": "x.py:1"}],  # code evidence, no project evidence
+            "claim": "seems wrong",
+        }]
+        gated, demotions = adapter.apply_evidence_gate(findings)
+        self.assertEqual(gated[0]["severity"], "nit")
+        self.assertIn("evidence gate", gated[0]["claim"])
+        self.assertEqual(len(demotions), 1)
+
+    def test_convention_finding_with_no_evidence_at_all_is_demoted(self):
+        findings = [{"category": "convention", "severity": "major", "claim": "x"}]
+        gated, demotions = adapter.apply_evidence_gate(findings)
+        self.assertEqual(gated[0]["severity"], "nit")
+        self.assertEqual(len(demotions), 1)
+
+    def test_correctness_finding_with_failure_scenario_passes_through(self):
+        findings = [{
+            "category": "correctness", "severity": "blocking",
+            "failure_scenario": "calling f(-1) raises instead of returning 0",
+            "claim": "off-by-one",
+        }]
+        gated, demotions = adapter.apply_evidence_gate(findings)
+        self.assertEqual(gated[0]["severity"], "blocking")
+        self.assertEqual(demotions, [])
+
+    def test_correctness_finding_without_failure_scenario_is_demoted(self):
+        findings = [{"category": "correctness", "severity": "blocking", "claim": "looks buggy"}]
+        gated, demotions = adapter.apply_evidence_gate(findings)
+        self.assertEqual(gated[0]["severity"], "nit")
+        self.assertEqual(len(demotions), 1)
+
+    def test_simplification_category_is_not_gated(self):
+        # Only convention and correctness have a defined evidence requirement --
+        # simplification findings aren't held to either rule.
+        findings = [{"category": "simplification", "severity": "minor", "claim": "duplicate helper"}]
+        gated, demotions = adapter.apply_evidence_gate(findings)
+        self.assertEqual(gated[0]["severity"], "minor")
+        self.assertEqual(demotions, [])
+
+    def test_nothing_dropped_only_demoted(self):
+        findings = [
+            {"category": "convention", "severity": "blocking", "claim": "a"},
+            {"category": "correctness", "severity": "blocking", "claim": "b"},
+        ]
+        gated, demotions = adapter.apply_evidence_gate(findings)
+        self.assertEqual(len(gated), 2)  # both stay in the list
+        self.assertEqual(len(demotions), 2)
+
+    def test_original_findings_list_not_mutated(self):
+        original = [{"category": "convention", "severity": "blocking", "claim": "a"}]
+        adapter.apply_evidence_gate(original)
+        self.assertEqual(original[0]["severity"], "blocking")  # unchanged
+
+
 if __name__ == "__main__":
     unittest.main()

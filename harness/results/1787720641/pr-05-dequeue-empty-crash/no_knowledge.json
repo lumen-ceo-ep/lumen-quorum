@@ -1,0 +1,39 @@
+{
+  "status": "ok",
+  "findings": [
+    {
+      "file": "queue/dequeue.py",
+      "line": 8,
+      "category": "correctness",
+      "severity": "blocking",
+      "claim": "max() on the pending list raises ValueError when there is no PENDING task in the queue, and this exception is not caught or documented.",
+      "evidence": [
+        {
+          "type": "code",
+          "ref": "queue/dequeue.py:7-8"
+        }
+      ],
+      "failure_scenario": "Call dequeue(queue) where queue is empty, or contains only tasks with state RUNNING/COMPLETED/CANCELLED/FAILED (e.g. all tasks currently RUNNING) -> pending == [] -> max(pending, key=...) raises 'ValueError: max() arg is an empty sequence' instead of returning None or raising a domain-specific error.",
+      "confidence": 0.95
+    }
+  ],
+  "coverage": {
+    "files_in_diff": 1,
+    "files_read": [
+      "queue/dequeue.py",
+      "queue/lifecycle.py",
+      "queue/enqueue.py",
+      "queue/retry.py",
+      "queue/__init__.py"
+    ],
+    "not_read_reason": null
+  },
+  "language": "en",
+  "usage": {
+    "total_cost_usd": 0.09783599999999999,
+    "input_tokens": 8,
+    "output_tokens": 1521,
+    "cache_read_tokens": 140370
+  },
+  "elapsed_s": 23.8
+}

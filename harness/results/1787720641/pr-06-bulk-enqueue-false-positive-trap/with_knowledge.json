@@ -1,0 +1,39 @@
+{
+  "status": "ok",
+  "findings": [
+    {
+      "file": "queue/enqueue.py",
+      "line": 39,
+      "category": "simplification",
+      "severity": "minor",
+      "claim": "The priority-range check and InvalidPriorityError raise in enqueue_bulk's pre-validation loop duplicate the identical check already performed inside enqueue().",
+      "evidence": [
+        {
+          "type": "code",
+          "ref": "queue/enqueue.py:22-25"
+        },
+        {
+          "type": "code",
+          "ref": "queue/enqueue.py:40-43"
+        }
+      ],
+      "failure_scenario": null,
+      "confidence": 0.6
+    }
+  ],
+  "coverage": {
+    "files_in_diff": 1,
+    "files_read": [
+      "queue/enqueue.py"
+    ],
+    "not_read_reason": null
+  },
+  "language": "en",
+  "usage": {
+    "total_cost_usd": 0.1100374,
+    "input_tokens": 8,
+    "output_tokens": 2476,
+    "cache_read_tokens": 142472
+  },
+  "elapsed_s": 30.7
+}

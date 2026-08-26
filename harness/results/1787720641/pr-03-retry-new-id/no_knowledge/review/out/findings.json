@@ -1,0 +1,41 @@
+{
+  "status": "ok",
+  "findings": [
+    {
+      "file": "queue/retry.py",
+      "line": 10,
+      "category": "correctness",
+      "severity": "major",
+      "claim": "task.task_id is mutated to a new uuid before transition() validates the state change, so a rejected transition still leaves the task with a changed id.",
+      "evidence": [
+        {
+          "type": "code",
+          "ref": "queue/retry.py:10-11"
+        },
+        {
+          "type": "code",
+          "ref": "queue/lifecycle.py:23-30"
+        }
+      ],
+      "failure_scenario": "retry(queue, task) is called on a task whose state is TaskState.RUNNING (not FAILED); transition() looks up _ALLOWED_TRANSITIONS[RUNNING] = {COMPLETED, FAILED, CANCELLED}, PENDING is not in it, so it raises ValueError('cannot transition task <new-uuid> from TaskState.RUNNING to TaskState.PENDING') using the already-overwritten task_id. The exception propagates, but task.task_id has permanently changed to the new uuid even though the task's state never changed and the retry did not actually happen, leaving the task's identity inconsistent with anything that referenced its original id (e.g. logs already emitted, external trackers, or the caller's own reference table).",
+      "confidence": 0.75
+    }
+  ],
+  "coverage": {
+    "files_in_diff": 1,
+    "files_read": [
+      "queue/retry.py",
+      "queue/lifecycle.py",
+      "queue/enqueue.py",
+      "queue/__init__.py"
+    ],
+    "not_read_reason": null
+  },
+  "language": "en",
+  "usage": {
+    "total_cost_usd": 0.1525394,
+    "input_tokens": 16,
+    "output_tokens": 3166,
+    "cache_read_tokens": 301007
+  }
+}

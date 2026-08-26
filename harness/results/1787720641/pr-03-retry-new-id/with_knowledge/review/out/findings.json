@@ -1,0 +1,38 @@
+{
+  "status": "ok",
+  "findings": [
+    {
+      "file": "queue/retry.py",
+      "line": 10,
+      "category": "convention",
+      "severity": "blocking",
+      "claim": "retry() assigns a new task_id via uuid4 instead of reusing the original id, violating the retry-must-preserve-id invariant.",
+      "evidence": [
+        {
+          "type": "code",
+          "ref": "queue/retry.py:10"
+        },
+        {
+          "type": "project",
+          "ref": "invariants.md#INV-3"
+        }
+      ],
+      "failure_scenario": "A task with task_id \"abc-123\" fails and is retried; retry() overwrites task.task_id with a freshly generated uuid (e.g. \"9f2e...\"). Any downstream consumer that dedupes completions or correlates callbacks by the original task_id \"abc-123\" will no longer recognize the retried task, causing duplicate processing or lost correlation.",
+      "confidence": 0.98
+    }
+  ],
+  "coverage": {
+    "files_in_diff": 1,
+    "files_read": [
+      "queue/retry.py"
+    ],
+    "not_read_reason": null
+  },
+  "language": "en",
+  "usage": {
+    "total_cost_usd": 0.0659482,
+    "input_tokens": 4,
+    "output_tokens": 635,
+    "cache_read_tokens": 63876
+  }
+}
