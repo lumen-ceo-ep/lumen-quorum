@@ -132,5 +132,54 @@ class TestLoadLanguage(unittest.TestCase):
             self.assertEqual(adapter.load_language(review_dir), "en")
 
 
+class TestVerifyCoverage(unittest.TestCase):
+    def _review_dir_with_manifest(self, tmpdir, files_in_diff):
+        review_dir = Path(tmpdir)
+        input_dir = review_dir / "input"
+        input_dir.mkdir()
+        (input_dir / "manifest.json").write_text(json.dumps({"files_in_diff": files_in_diff}))
+        return review_dir
+
+    def test_no_manifest_returns_coverage_unchanged(self):
+        with tempfile.TemporaryDirectory() as d:
+            review_dir = Path(d)
+            (review_dir / "input").mkdir()
+            coverage = {"files_read": ["a.py"]}
+            self.assertEqual(adapter.verify_coverage(review_dir, coverage), coverage)
+
+    def test_full_coverage_produces_no_warning(self):
+        with tempfile.TemporaryDirectory() as d:
+            review_dir = self._review_dir_with_manifest(d, ["queue/lifecycle.py"])
+            coverage = {"files_read": ["queue/lifecycle.py"], "not_read_reason": None}
+            result = adapter.verify_coverage(review_dir, coverage)
+            self.assertNotIn("mechanically_verified_missing", result)
+            self.assertIsNone(result["not_read_reason"])
+
+    def test_missed_file_is_mechanically_detected_even_without_self_report(self):
+        with tempfile.TemporaryDirectory() as d:
+            review_dir = self._review_dir_with_manifest(d, ["queue/lifecycle.py", "queue/enqueue.py"])
+            # Model only reported reading one file and didn't flag anything wrong.
+            coverage = {"files_read": ["queue/lifecycle.py"], "not_read_reason": None}
+            result = adapter.verify_coverage(review_dir, coverage)
+            self.assertEqual(result["mechanically_verified_missing"], ["queue/enqueue.py"])
+            self.assertIsNotNone(result["not_read_reason"])
+
+    def test_self_reported_reason_is_not_overwritten(self):
+        with tempfile.TemporaryDirectory() as d:
+            review_dir = self._review_dir_with_manifest(d, ["queue/lifecycle.py", "queue/enqueue.py"])
+            coverage = {"files_read": ["queue/lifecycle.py"], "not_read_reason": "budget"}
+            result = adapter.verify_coverage(review_dir, coverage)
+            self.assertEqual(result["not_read_reason"], "budget")
+            self.assertEqual(result["mechanically_verified_missing"], ["queue/enqueue.py"])
+
+    def test_suffix_matching_handles_different_relative_path_forms(self):
+        with tempfile.TemporaryDirectory() as d:
+            # files_in_diff is repo-relative; files_read is workspace-relative.
+            review_dir = self._review_dir_with_manifest(d, ["demo-project/codebase/queue/lifecycle.py"])
+            coverage = {"files_read": ["queue/lifecycle.py"]}
+            result = adapter.verify_coverage(review_dir, coverage)
+            self.assertNotIn("mechanically_verified_missing", result)
+
+
 if __name__ == "__main__":
     unittest.main()

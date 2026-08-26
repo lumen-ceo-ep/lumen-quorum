@@ -72,6 +72,13 @@ def main():
     (input_dir / "diff.patch").write_text(diff)
     diff_sha = hashlib.sha256(diff.encode()).hexdigest()[:12]
 
+    # The real file list, not just a count -- this is what makes the coverage
+    # check in the adapter mechanical rather than "trust the model's self-report."
+    files_in_diff = subprocess.run(
+        ["git", "diff", "--name-only", f"{args.base}...{args.head}"],
+        cwd=str(REPO_ROOT), capture_output=True, text=True, check=True,
+    ).stdout.splitlines()
+
     shutil.copy(ROLE_FILE, input_dir / "role.md")
 
     project_dir = Path(args.project)
@@ -96,6 +103,7 @@ def main():
         "base": args.base,
         "head": args.head,
         "diff_sha": diff_sha,
+        "files_in_diff": files_in_diff,
         "language": language,
         "language_source": language_source,
     }
