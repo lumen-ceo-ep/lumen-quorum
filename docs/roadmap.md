@@ -50,6 +50,30 @@ model id, token usage) so every verdict is reproducible.
 human actually acts on, and the fraction later disputed as wrong. If the first is low or
 the second is high, the knowledge/prompt layer isn't ready for more nodes yet.
 
+**First live-fire (2026-08-25): passed.** Validated on a company-infrastructure mirror
+first (`review-engine-poc`, GHES) rather than this repo directly, to keep company and
+personal resource use separated — see `docs/architecture.md` section 6 and the isolation
+note this project runs under. A real GitHub Actions run, authenticated via a Claude
+subscription OAuth token (`claude setup-token`, not a metered API key — confirms M1 does
+not require paid API access to run at all), correctly found the seeded invariant
+violation, cited both the code line and the specific knowledge-doc anchor
+(`invariants.md#INV-1`), gave a concrete failure scenario, and posted a real inline PR
+comment via the GitHub Review API. Cost: $0.10.
+
+Three infrastructure bugs surfaced and were fixed, all portable fixes now in this repo
+too: (1) `post_review.py` hardcoded `api.github.com` instead of using the actual API base
+URL for whatever server the workflow runs on — fixed via `github.api_url`, which resolves
+correctly on both github.com and GHES; (2) the Claude node's auth was API-key-only — added
+`CLAUDE_CODE_OAUTH_TOKEN` as an equally-supported alternative, so a node can be funded by
+either a metered key or a subscription; (3) a GHES-only issue (`upload-artifact@v4`
+unsupported there) was *not* carried back here since this repo runs on real GitHub, where
+v4 is correct — a reminder that not every fix from a mirror environment is portable.
+
+The 2-week action-rate/dispute-rate tracking itself has not started — that requires
+sustained real usage on a repo with real ongoing PR traffic, which neither this repo nor
+`review-engine-poc` has yet (both are demo/PoC repos). **M1's mechanism is proven; M1's
+own quality bar is not yet measured.**
+
 ## M2 — Feedback ledger
 
 Capture disagreement with as little friction as possible: an explicit correction, and
