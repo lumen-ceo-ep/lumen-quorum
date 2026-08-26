@@ -23,6 +23,32 @@ projects/<name>/   <- lives wherever the adopting team wants (their own repo/sto
   profile.yaml     <- output conventions (language, anchor style, severity vocabulary)
 ```
 
+### Output language
+
+A project sets its default via `profile.yaml`:
+
+```yaml
+output:
+  language: ko   # any value a model can reasonably interpret: a code ("ko"), an
+                 # English name ("Korean"), or the language's own name ("한국어")
+```
+
+That default can be overridden for a single run without touching the project's
+config — the "option the user can select" case, not just a fixed team-wide setting.
+On GitHub, commenting `/review lang=ko` on a PR re-triggers a review in that language
+for that run only; the automatic per-PR trigger always uses the project's configured
+default. Precedence is override > profile.yaml > English.
+
+Only the *content* translates — a finding's `claim` and `failure_scenario` are written
+the way a practitioner actually writes in that language for this kind of technical
+feedback, not a literal translation of English phrasing or a stiff formal register a
+language doesn't normally use for this purpose. The JSON structure itself — field
+names, the `category`/`severity` enum values, code identifiers, file paths — stays
+fixed in English, since those are machine-read, not prose. The PR comment's own static
+wrapper text (severity labels like "BLOCKING", the summary line) currently stays
+English regardless of the selected language — that's UI chrome, not review content,
+and localizing it is an explicit scope boundary for now, not an oversight.
+
 ## 2. Reviewer node contract
 
 A node is a process, not a service. It reads from a fixed input layout and writes one
