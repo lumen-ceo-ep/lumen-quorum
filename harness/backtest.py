@@ -24,12 +24,30 @@ INVARIANTS_FILE = DEMO_PROJECT / "invariants.md"
 SEVERITY_RANK = {"nit": 0, "minor": 1, "major": 2, "blocking": 3}
 
 
+def parse_diff_files(diff_text: str) -> list:
+    """Extracts the changed-file list from a unified diff's own +++ headers,
+    rather than needing a live `git diff` -- these are static fixture diffs,
+    not a real repo's history. Lets the harness exercise the same mechanical
+    coverage check (adapter.py's verify_coverage) that live CI runs get.
+    """
+    files = []
+    for line in diff_text.splitlines():
+        if line.startswith("+++ "):
+            path = line[len("+++ "):].strip()
+            if path.startswith("b/"):
+                path = path[2:]
+            if path != "/dev/null":
+                files.append(path)
+    return files
+
+
 def build_review_dir(run_dir: Path, pr_dir: Path, with_knowledge: bool) -> Path:
     review_dir = run_dir / "review"
     input_dir = review_dir / "input"
     input_dir.mkdir(parents=True, exist_ok=True)
 
     shutil.copy(ROLE_FILE, input_dir / "role.md")
+    diff_text = (pr_dir / "diff.patch").read_text()
     shutil.copy(pr_dir / "diff.patch", input_dir / "diff.patch")
 
     if with_knowledge:
@@ -37,6 +55,11 @@ def build_review_dir(run_dir: Path, pr_dir: Path, with_knowledge: bool) -> Path:
         project_dir = input_dir / "project"
         project_dir.mkdir(exist_ok=True)
         shutil.copy(INVARIANTS_FILE, project_dir / "invariants.md")
+
+    (input_dir / "manifest.json").write_text(json.dumps({
+        "files_in_diff": parse_diff_files(diff_text),
+        "language": "en",
+    }))
 
     workspace_src = pr_dir / "workspace"
     workspace_dst = review_dir / "workspace"

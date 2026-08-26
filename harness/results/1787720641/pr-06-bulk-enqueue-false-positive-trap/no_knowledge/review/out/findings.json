@@ -1,0 +1,38 @@
+{
+  "status": "ok",
+  "findings": [
+    {
+      "file": "queue/enqueue.py",
+      "line": 40,
+      "category": "simplification",
+      "severity": "minor",
+      "claim": "The priority range check in enqueue_bulk duplicates the identical check already in enqueue, and calling enqueue() in the second pass re-runs that same check for every item.",
+      "evidence": [
+        {
+          "type": "code",
+          "ref": "queue/enqueue.py:22-25"
+        },
+        {
+          "type": "code",
+          "ref": "queue/enqueue.py:40-43"
+        }
+      ],
+      "failure_scenario": null,
+      "confidence": 0.5
+    }
+  ],
+  "coverage": {
+    "files_in_diff": 1,
+    "files_read": [
+      "queue/enqueue.py"
+    ],
+    "not_read_reason": null
+  },
+  "language": "en",
+  "usage": {
+    "total_cost_usd": 0.14860600000000002,
+    "input_tokens": 12,
+    "output_tokens": 4167,
+    "cache_read_tokens": 220865
+  }
+}

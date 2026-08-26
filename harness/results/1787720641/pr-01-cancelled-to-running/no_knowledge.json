@@ -1,0 +1,46 @@
+{
+  "status": "ok",
+  "findings": [
+    {
+      "file": "queue/lifecycle.py",
+      "line": 18,
+      "category": "correctness",
+      "severity": "major",
+      "claim": "Allowing CANCELLED -> RUNNING lets a task's state become RUNNING again with no corresponding logic to actually re-dispatch or re-execute it, since transition() only mutates task.state and no worker/dequeue code exists to pick the task back up.",
+      "evidence": [
+        {
+          "type": "code",
+          "ref": "queue/lifecycle.py:23-30"
+        },
+        {
+          "type": "code",
+          "ref": "queue/enqueue.py:20-28"
+        },
+        {
+          "type": "code",
+          "ref": "queue/retry.py:6-8"
+        }
+      ],
+      "failure_scenario": "A task is PENDING then transitioned to CANCELLED (allowed by PENDING's transition set), so it was never actually started and was never appended to any 'running' tracking. Later, transition(task, TaskState.RUNNING) is called to 're-activate' it per the new rule: task.state flips to RUNNING, but nothing re-enqueues it or hands it to a worker (unlike FAILED, which retry.py routes back through PENDING first). The task record now falsely reports RUNNING forever with no process executing it.",
+      "confidence": 0.55
+    }
+  ],
+  "coverage": {
+    "files_in_diff": 1,
+    "files_read": [
+      "queue/lifecycle.py",
+      "queue/retry.py",
+      "queue/enqueue.py",
+      "queue/__init__.py"
+    ],
+    "not_read_reason": null
+  },
+  "language": "en",
+  "usage": {
+    "total_cost_usd": 0.1845156,
+    "input_tokens": 18,
+    "output_tokens": 4842,
+    "cache_read_tokens": 339603
+  },
+  "elapsed_s": 57.3
+}

@@ -96,7 +96,17 @@ Two rules matter more than the field list:
 - **A finding without evidence is not a finding.** `category: convention` with no
   `project` evidence, or `category: correctness` with no `failure_scenario`, gets
   mechanically demoted before any LLM-based adjudication even runs. This is the cheapest
-  lever against hallucinated findings, and it costs zero extra model calls.
+  lever against hallucinated findings, and it costs zero extra model calls. Implemented
+  as `apply_evidence_gate()` in the Claude adapter — plain code, not a prompt request the
+  model can silently ignore; nothing is dropped, a demoted finding stays visible at
+  `nit` severity with the reason recorded in `evidence_gate_demotions`.
+- **Coverage is verified, not just self-reported.** The node's own `coverage.files_read`
+  is cross-checked against the diff's real file list (`manifest.json`'s `files_in_diff`,
+  computed by `git diff --name-only`, not parsed from the model's prose). A file the
+  model silently never read produces a `not_read_reason` and a
+  `mechanically_verified_missing` list even if the model itself never flagged anything
+  wrong — "the model didn't complain" and "the model actually covered everything" are
+  different claims, and only code can tell them apart.
 
 New vendor onboarding = writing an adapter: render the input layout into that vendor's
 actual invocation shape, run it, normalize its output back into the schema above. The

@@ -1,0 +1,13 @@
+--- a/queue/lifecycle.py
++++ b/queue/lifecycle.py
+@@ -22,8 +22,8 @@
+ 
+ def transition(task, new_state: TaskState) -> None:
+     """Move a task to new_state, enforcing the allowed-transition table."""
+-    allowed = _ALLOWED_TRANSITIONS.get(task.state, set())
+-    if new_state not in allowed:
++    allowed_next_states = _ALLOWED_TRANSITIONS.get(task.state, set())
++    if new_state not in allowed_next_states:
+         raise ValueError(
+             f"cannot transition task {task.task_id} from {task.state} to {new_state}"
+         )

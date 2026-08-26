@@ -1,0 +1,22 @@
+{
+  "status": "ok",
+  "findings": [],
+  "coverage": {
+    "files_in_diff": 1,
+    "files_read": [
+      "queue/enqueue.py",
+      "queue/retry.py",
+      "queue/lifecycle.py",
+      "queue/__init__.py"
+    ],
+    "not_read_reason": null
+  },
+  "language": "en",
+  "usage": {
+    "total_cost_usd": 0.16864560000000003,
+    "input_tokens": 20,
+    "output_tokens": 3180,
+    "cache_read_tokens": 375388
+  },
+  "elapsed_s": 42.2
+}

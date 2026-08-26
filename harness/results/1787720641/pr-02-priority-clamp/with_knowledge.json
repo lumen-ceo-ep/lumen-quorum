@@ -1,0 +1,39 @@
+{
+  "status": "ok",
+  "findings": [
+    {
+      "file": "queue/enqueue.py",
+      "line": 22,
+      "category": "convention",
+      "severity": "blocking",
+      "claim": "enqueue() now silently clamps out-of-range priority instead of rejecting it, violating INV-2.",
+      "evidence": [
+        {
+          "type": "code",
+          "ref": "queue/enqueue.py:22-23"
+        },
+        {
+          "type": "project",
+          "ref": "invariants.md#INV-2"
+        }
+      ],
+      "failure_scenario": "Calling enqueue(queue, 'task-1', 42) previously raised InvalidPriorityError; now it silently creates a task with priority=9, masking a caller bug (e.g. a miscomputed priority) and inserting a task at max priority when the caller may have intended the request to fail.",
+      "confidence": 0.98
+    }
+  ],
+  "coverage": {
+    "files_in_diff": 1,
+    "files_read": [
+      "queue/enqueue.py"
+    ],
+    "not_read_reason": null
+  },
+  "language": "en",
+  "usage": {
+    "total_cost_usd": 0.0662946,
+    "input_tokens": 4,
+    "output_tokens": 562,
+    "cache_read_tokens": 63968
+  },
+  "elapsed_s": 8.7
+}
