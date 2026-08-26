@@ -16,6 +16,14 @@ name: Quorum Review (comment command)
 # injection vector (see docs/architecture.md sec. 8.1). `github.event.issue.
 # number`/`github.repository`/`github.api_url` are GitHub-controlled, not
 # attacker text, so those are safe to interpolate directly.
+#
+# Matching note: the job-level `if:` below is a cheap coarse pre-filter
+# (startsWith) so a runner doesn't spin up for every comment on every PR --
+# GitHub Actions expressions have no real regex support. The *precise* match
+# (must be "/review" followed by end-of-string or whitespace, not just any
+# comment that happens to start with those 7 characters, like "/reviewer
+# needed") happens in the first step with real regex, which then gates every
+# later step via its `matched` output.
 
 on:
   issue_comment:
@@ -42,14 +50,21 @@ jobs:
         env:
           COMMENT_BODY: ${{ github.event.comment.body }}
         run: |
+          if printf '%s' "$COMMENT_BODY" | grep -qP '^/review(\s|$)'; then
+            echo "matched=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "matched=false" >> "$GITHUB_OUTPUT"
+          fi
           LANG_ARG=$(printf '%s' "$COMMENT_BODY" | grep -oP 'lang=\K[^\s]+' || true)
           echo "lang=$LANG_ARG" >> "$GITHUB_OUTPUT"
 
       - uses: actions/checkout@v4
+        if: steps.cmd.outputs.matched == 'true'
         with:
           fetch-depth: 0
 
       - name: Resolve PR base/head SHAs
+        if: steps.cmd.outputs.matched == 'true'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -59,6 +74,7 @@ jobs:
             --api-base "${{ github.api_url }}" >> "$GITHUB_ENV"
 
       - name: Checkout PR head
+        if: steps.cmd.outputs.matched == 'true'
         # Fetch by PR ref, not by raw SHA -- SHA-fetch permission varies by server
         # config, but refs/pull/N/head is always exposed on GitHub and GHES alike.
         run: |
@@ -66,13 +82,16 @@ jobs:
           git checkout FETCH_HEAD
 
       - uses: actions/setup-node@v4
+        if: steps.cmd.outputs.matched == 'true'
         with:
           node-version: "20"
 
       - name: Install Claude Code CLI
+        if: steps.cmd.outputs.matched == 'true'
         run: npm install -g @anthropic-ai/claude-code
 
       - name: Build review input
+        if: steps.cmd.outputs.matched == 'true'
         env:
           LANG_OVERRIDE: ${{ steps.cmd.outputs.lang }}
         run: |
@@ -83,12 +102,14 @@ jobs:
           python3 engine/orchestrator/build_review_input.py "${ARGS[@]}"
 
       - name: Run Claude node
+        if: steps.cmd.outputs.matched == 'true'
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
         run: python3 engine/adapters/claude/adapter.py /tmp/quorum-review claude-sonnet-5
 
       - name: Post review
+        if: steps.cmd.outputs.matched == 'true'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
