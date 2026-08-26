@@ -104,6 +104,16 @@ in what M1 already claimed:**
   this hardening changed the actual review behavior, confirming it as pure robustness
   work, not a quality regression.
 
+**Still open from the hardening pass, not yet closed out:**
+
+- `quorum-review-command.yml` (the `/review lang=<x>` comment trigger) has only been
+  tested in isolation (the regex-matching logic, locally) — the full workflow
+  (checkout-by-PR-ref, `resolve_pr.py`, the pipeline end to end) has never run against a
+  real PR comment event.
+- `test.yml` has never been confirmed to actually run green on real github.com Actions —
+  no `gh` auth to github.com was available to check a run's status; the workflow itself
+  follows standard, well-trodden steps, but that's an inference, not a check.
+
 ## M2 — Feedback ledger
 
 Capture disagreement with as little friction as possible: an explicit correction, and
@@ -113,6 +123,29 @@ Cluster repeated signals into proposed knowledge-base updates; a human still app
 every change to the knowledge base. No signal becomes a rule on its own — clustering by
 repeated signal (not a single incident) is the deliberate bar against overfitting the
 knowledge base to one bad day.
+
+**Why M2 is next, not "wait for M1's 2-week window first":** M1's own stop condition
+(action-rate/dispute-rate over 2 weeks of real traffic) hasn't started, because no repo
+running this engine has real ongoing PR traffic yet. M2 is not a feature bolted onto a
+finished M1 — it's the instrumentation that 2-week measurement actually needs. Building
+it now means the moment real traffic exists, the data collects itself instead of
+requiring a human to keep score by hand.
+
+**Design sketch:**
+
+- **Ledger record** — one entry per finding: id, file/line/category, verdict
+  (`accepted` / `corrected` / `ignored`), signal source (`explicit` / `implicit`), PR,
+  timestamp.
+- **Explicit capture** — a workflow step reads replies/reactions on the posted review
+  comment.
+- **Implicit capture** — a post-merge job diffs each `blocking`/`major` finding's line
+  range against the merged state; unchanged = a real "ignored" signal even though no one
+  clicked anything.
+- **Clustering** — group by (file-pattern, category, cited invariant) across *repeated*
+  occurrences only, never a single incident.
+- **Promotion** — a cluster becomes a proposed PR against the project's own
+  `invariants.md`/`constitution.md`. Never an automatic edit; a human approves every
+  change to the knowledge base.
 
 **Stop condition:** at least a meaningful sample of labeled outcomes before moving on —
 building a consensus layer without any data on what "correct" looks like in practice is
