@@ -44,6 +44,7 @@ a synthetic demo project (`demo-project/`) before anything else gets built. See
 
 ## License
 
-Not yet finalized — under evaluation between an open-core model and a source-available
-license with a delayed commercial-use window. Nothing in this repo should be assumed
-freely licensed until a LICENSE file is added.
+[Business Source License 1.1](LICENSE) — source-available now, free to use and
+self-host (including internal commercial use), with the sole restriction that nobody
+may offer this as a competing hosted/managed review service. Converts automatically to
+Apache License 2.0 on 2030-08-26.
