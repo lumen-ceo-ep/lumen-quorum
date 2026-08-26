@@ -61,11 +61,40 @@ def _read(path: Path) -> str:
     return path.read_text() if path.exists() else ""
 
 
+def load_language(review_dir: Path) -> str:
+    manifest_path = review_dir / "input" / "manifest.json"
+    if not manifest_path.exists():
+        return "en"
+    try:
+        manifest = json.loads(manifest_path.read_text())
+    except json.JSONDecodeError:
+        return "en"
+    return manifest.get("language") or "en"
+
+
+def language_instruction(language: str) -> str:
+    if language.lower() in ("en", "english"):
+        return ""
+    return (
+        f"\n## Output language\n"
+        f"Write every free-text field (\"claim\", \"failure_scenario\", the top-level "
+        f"\"error\" field if used) in {language}. Write it the way a practitioner "
+        f"actually writes in that language for this kind of technical feedback -- "
+        f"not a literal, word-for-word translation of English phrasing, and not "
+        f"stiff formal report register unless that specific language's engineering "
+        f"culture normally uses it for this kind of note. Keep the JSON structure "
+        f"itself, field names, category/severity enum values, and any code "
+        f"identifiers/file paths/domain terms exactly as specified in English -- "
+        f"only the prose content translates."
+    )
+
+
 def build_prompt(review_dir: Path) -> str:
     input_dir = review_dir / "input"
     role = _read(input_dir / "role.md").strip()
     constitution = _read(input_dir / "constitution.md").strip()
     diff_text = _read(input_dir / "diff.patch").strip()
+    lang_block = language_instruction(load_language(review_dir))
 
     project_dir = input_dir / "project"
     project_docs = ""
@@ -99,6 +128,7 @@ def build_prompt(review_dir: Path) -> str:
         "read any file you need to, including files not touched by this diff, to "
         "check for context such as whether similar logic already exists elsewhere.",
         "\n## Output contract\n" + FINDINGS_SCHEMA_HINT,
+        lang_block,
     ]
     return "\n".join(p for p in parts if p)
 
@@ -170,6 +200,7 @@ def run(review_dir: Path, model: str) -> dict:
 
     findings_obj.setdefault("status", "ok")
     findings_obj.setdefault("findings", [])
+    findings_obj["language"] = load_language(review_dir)
     findings_obj["usage"] = {
         "total_cost_usd": envelope.get("total_cost_usd"),
         "input_tokens": envelope.get("usage", {}).get("input_tokens"),
