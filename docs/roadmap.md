@@ -74,6 +74,36 @@ sustained real usage on a repo with real ongoing PR traffic, which neither this 
 `review-engine-poc` has yet (both are demo/PoC repos). **M1's mechanism is proven; M1's
 own quality bar is not yet measured.**
 
+**Hardening pass (2026-08-26), still within M1's scope — no new milestone, closing gaps
+in what M1 already claimed:**
+
+- **Selectable output language, for real.** `profile.yaml`'s `output.language` was
+  declared in the schema since the start but never actually read by any code. Now
+  wired end-to-end: a project's default, plus a per-run override via commenting
+  `/review lang=ko` on a PR (a new `quorum-review-command.yml` workflow). Verified with
+  a real model call — natural, correctly-registered Korean output (not a stiff literal
+  translation), structural fields (`category`/`severity`) correctly left in English.
+  Building this surfaced and fixed a real script-injection vulnerability in the new
+  workflow (a PR comment's raw text was headed for direct `${{ }}` interpolation into a
+  shell script) before it ever shipped — see the workflow file's own security note.
+- **The evidence gate is now actually mechanical, not just a prompt request.** The
+  architecture doc already claimed findings without required evidence get "mechanically
+  demoted" — that was aspirational, not true, until today. `apply_evidence_gate()` now
+  enforces it in code: nothing is silently dropped, a finding that fails the gate stays
+  visible at `nit` severity with the reason recorded.
+- **Coverage is mechanically cross-checked, not just self-reported.** A model that
+  silently skips a diff file without noticing now gets caught regardless — the real
+  file list (`git diff --name-only`, not parsed from prose) is compared against
+  `files_read` in code.
+- **Real automated tests exist now.** 29 unit tests (`tests/test_review_pipeline.py`,
+  wired into a new `test.yml` CI workflow) cover all of the above with no API calls, plus
+  the harness itself was updated to build a proper `manifest.json` so M0 backtests get
+  the same mechanical coverage check live CI runs do.
+- **Full M0 regression check**, run after all of the above landed: identical result to
+  the original validation (recall 0.25 -> 1.00, 0 false positives either way) — none of
+  this hardening changed the actual review behavior, confirming it as pure robustness
+  work, not a quality regression.
+
 ## M2 — Feedback ledger
 
 Capture disagreement with as little friction as possible: an explicit correction, and
