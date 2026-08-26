@@ -32,6 +32,20 @@ def load_profile(project_dir: Path) -> dict:
         return {}
 
 
+def resolve_language(override: str, profile: dict) -> tuple:
+    """Precedence: explicit override > project's profile.yaml > default.
+
+    Pure function (no filesystem access) so it's unit-testable without a real
+    profile.yaml on disk -- see tests/test_language.py.
+    """
+    profile_language = (profile.get("output") or {}).get("language")
+    if override:
+        return override, "override"
+    if profile_language:
+        return profile_language, "profile"
+    return DEFAULT_LANGUAGE, "default"
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--base", required=True)
@@ -72,8 +86,7 @@ def main():
         shutil.copy(invariants, proj_out / "invariants.md")
 
     profile = load_profile(project_dir)
-    profile_language = (profile.get("output") or {}).get("language")
-    language = args.lang or profile_language or DEFAULT_LANGUAGE
+    language, language_source = resolve_language(args.lang, profile)
 
     # manifest.json is the run's audit record (docs/architecture.md sec. 7):
     # what corpus/diff/settings actually produced this run's verdict, so a later
@@ -84,7 +97,7 @@ def main():
         "head": args.head,
         "diff_sha": diff_sha,
         "language": language,
-        "language_source": "override" if args.lang else ("profile" if profile_language else "default"),
+        "language_source": language_source,
     }
     (input_dir / "manifest.json").write_text(json.dumps(manifest, indent=2, ensure_ascii=False))
 
