@@ -61,15 +61,58 @@ def _read(path: Path) -> str:
     return path.read_text() if path.exists() else ""
 
 
-def load_language(review_dir: Path) -> str:
+def load_manifest(review_dir: Path) -> dict:
     manifest_path = review_dir / "input" / "manifest.json"
     if not manifest_path.exists():
-        return "en"
+        return {}
     try:
-        manifest = json.loads(manifest_path.read_text())
+        return json.loads(manifest_path.read_text())
     except json.JSONDecodeError:
-        return "en"
-    return manifest.get("language") or "en"
+        return {}
+
+
+def load_language(review_dir: Path) -> str:
+    return load_manifest(review_dir).get("language") or "en"
+
+
+def verify_coverage(review_dir: Path, coverage: dict) -> dict:
+    """Cross-checks the model's self-reported coverage against the real diff
+    file list, rather than only trusting a self-report the model may not have
+    noticed was incomplete. A silently-skipped file must not produce a clean
+    coverage block just because the model didn't flag it (docs/architecture.md
+    sec. 2's evidence-gate rationale applies here too: verify, don't trust).
+
+    No-ops when the manifest has no files_in_diff (e.g. the offline backtest
+    harness, which builds its own review dir without a manifest at all) --
+    there's nothing to cross-check against in that case.
+    """
+    files_in_diff = load_manifest(review_dir).get("files_in_diff")
+    if not files_in_diff:
+        return coverage
+
+    files_read = coverage.get("files_read") or []
+    # files_read entries may be a shorter relative form than files_in_diff's
+    # repo-relative paths depending on how the node's cwd was set up -- match
+    # by suffix so both conventions are handled rather than guessing which one
+    # a given node/adapter used.
+    def is_covered(diff_file: str) -> bool:
+        return any(
+            diff_file == read or diff_file.endswith("/" + read) or read.endswith("/" + diff_file)
+            for read in files_read
+        )
+
+    unread = [f for f in files_in_diff if not is_covered(f)]
+    if not unread:
+        return coverage
+
+    coverage = dict(coverage)
+    coverage["mechanically_verified_missing"] = unread
+    if not coverage.get("not_read_reason"):
+        coverage["not_read_reason"] = (
+            f"mechanically detected: {len(unread)} diff file(s) never appeared in "
+            f"files_read, and the node did not self-report why"
+        )
+    return coverage
 
 
 def language_instruction(language: str) -> str:
@@ -201,6 +244,8 @@ def run(review_dir: Path, model: str) -> dict:
     findings_obj.setdefault("status", "ok")
     findings_obj.setdefault("findings", [])
     findings_obj["language"] = load_language(review_dir)
+    if "coverage" in findings_obj:
+        findings_obj["coverage"] = verify_coverage(review_dir, findings_obj["coverage"])
     findings_obj["usage"] = {
         "total_cost_usd": envelope.get("total_cost_usd"),
         "input_tokens": envelope.get("usage", {}).get("input_tokens"),
