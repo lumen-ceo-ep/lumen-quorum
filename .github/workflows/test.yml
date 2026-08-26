@@ -1,0 +1,27 @@
+name: Test
+
+# Unit tests for the engine's own logic (language resolution, profile loading,
+# etc.) -- pure Python, no API keys, no self-hosted runner needed. Separate
+# from the quorum-review*.yml workflows, which exercise the actual node
+# end-to-end and do need credentials.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install pyyaml
+
+      - name: Run unit tests
+        run: python3 -m unittest discover -s tests -v
