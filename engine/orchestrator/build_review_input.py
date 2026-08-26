@@ -3,23 +3,48 @@
 PR against a given project directory, ready to hand to a node adapter.
 
 Usage:
-  build_review_input.py --base <sha> --head <sha> --project <dir> --out <dir>
+  build_review_input.py --base <sha> --head <sha> --project <dir> --out <dir> [--lang <code>]
 """
 import argparse
+import hashlib
+import json
 import shutil
 import subprocess
 from pathlib import Path
 
+try:
+    import yaml
+except ImportError:
+    yaml = None
+
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 ROLE_FILE = REPO_ROOT / "harness" / "role.md"
+DEFAULT_LANGUAGE = "en"
+
+
+def load_profile(project_dir: Path) -> dict:
+    profile_path = project_dir / "profile.yaml"
+    if not profile_path.exists() or yaml is None:
+        return {}
+    try:
+        return yaml.safe_load(profile_path.read_text()) or {}
+    except yaml.YAMLError:
+        return {}
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--base", required=True)
     ap.add_argument("--head", required=True)
-    ap.add_argument("--project", required=True, help="path to a project dir with constitution.md/invariants.md")
+    ap.add_argument("--project", required=True, help="path to a project dir with constitution.md/invariants.md/profile.yaml")
     ap.add_argument("--out", required=True)
+    ap.add_argument(
+        "--lang",
+        default=None,
+        help="Output language override (e.g. 'ko', 'Korean', '한국어'). "
+             "Takes priority over the project's profile.yaml output.language, "
+             "which itself takes priority over the default (%(default)s)." % {"default": DEFAULT_LANGUAGE},
+    )
     args = ap.parse_args()
 
     out = Path(args.out)
@@ -31,6 +56,7 @@ def main():
         cwd=str(REPO_ROOT), capture_output=True, text=True, check=True,
     ).stdout
     (input_dir / "diff.patch").write_text(diff)
+    diff_sha = hashlib.sha256(diff.encode()).hexdigest()[:12]
 
     shutil.copy(ROLE_FILE, input_dir / "role.md")
 
@@ -44,6 +70,23 @@ def main():
         proj_out = input_dir / "project"
         proj_out.mkdir(exist_ok=True)
         shutil.copy(invariants, proj_out / "invariants.md")
+
+    profile = load_profile(project_dir)
+    profile_language = (profile.get("output") or {}).get("language")
+    language = args.lang or profile_language or DEFAULT_LANGUAGE
+
+    # manifest.json is the run's audit record (docs/architecture.md sec. 7):
+    # what corpus/diff/settings actually produced this run's verdict, so a later
+    # "why did this differ from last time" question has a real answer instead of
+    # a guess.
+    manifest = {
+        "base": args.base,
+        "head": args.head,
+        "diff_sha": diff_sha,
+        "language": language,
+        "language_source": "override" if args.lang else ("profile" if profile_language else "default"),
+    }
+    (input_dir / "manifest.json").write_text(json.dumps(manifest, indent=2, ensure_ascii=False))
 
     # The workspace is the whole checked-out repo at HEAD (the workflow's own
     # actions/checkout step already puts the runner there, at the PR head sha) --
@@ -60,7 +103,7 @@ def main():
             workspace_dst.unlink()
     workspace_dst.symlink_to(REPO_ROOT, target_is_directory=True)
 
-    print(f"review input built at {out}")
+    print(f"review input built at {out} (language={language}, source={manifest['language_source']})")
     if not diff.strip():
         print("warning: empty diff between base and head")
 

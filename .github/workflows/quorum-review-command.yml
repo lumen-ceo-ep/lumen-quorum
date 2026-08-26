@@ -1,0 +1,99 @@
+name: Quorum Review (comment command)
+
+# Lets a human re-trigger a review on demand, in a language of their choosing,
+# by commenting on the PR: `/review` (uses the project's default language) or
+# `/review lang=ko` / `/review lang=Korean` / `/review lang=한국어` (overrides
+# it for this run only -- see docs/architecture.md's language section and
+# engine/orchestrator/build_review_input.py's --lang flag). This is the
+# "option the user can select" entry point; the automatic pull_request-trigger
+# workflow (quorum-review.yml) always uses the project's configured default.
+#
+# Security note: the comment body is untrusted input. Every place it (or a
+# value derived from it) is needed inside a `run:` shell script, it's passed
+# through `env:` and referenced as a shell variable -- never interpolated
+# directly via ${{ }} into the script text. Direct interpolation pastes the
+# raw string into the script before the shell parses it, which is a script-
+# injection vector (see docs/architecture.md sec. 8.1). `github.event.issue.
+# number`/`github.repository`/`github.api_url` are GitHub-controlled, not
+# attacker text, so those are safe to interpolate directly.
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: quorum-review-command-${{ github.event.issue.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    if: |
+      github.event.issue.pull_request != null &&
+      startsWith(github.event.comment.body, '/review')
+    runs-on: [self-hosted, public]
+    timeout-minutes: 10
+    steps:
+      - name: Parse command
+        id: cmd
+        env:
+          COMMENT_BODY: ${{ github.event.comment.body }}
+        run: |
+          LANG_ARG=$(printf '%s' "$COMMENT_BODY" | grep -oP 'lang=\K[^\s]+' || true)
+          echo "lang=$LANG_ARG" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve PR base/head SHAs
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 engine/orchestrator/resolve_pr.py \
+            --repo "${{ github.repository }}" \
+            --pr "${{ github.event.issue.number }}" \
+            --api-base "${{ github.api_url }}" >> "$GITHUB_ENV"
+
+      - name: Checkout PR head
+        # Fetch by PR ref, not by raw SHA -- SHA-fetch permission varies by server
+        # config, but refs/pull/N/head is always exposed on GitHub and GHES alike.
+        run: |
+          git fetch origin "refs/pull/${{ github.event.issue.number }}/head"
+          git checkout FETCH_HEAD
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Claude Code CLI
+        run: npm install -g @anthropic-ai/claude-code
+
+      - name: Build review input
+        env:
+          LANG_OVERRIDE: ${{ steps.cmd.outputs.lang }}
+        run: |
+          ARGS=(--base "$BASE_SHA" --head "$HEAD_SHA" --project demo-project --out /tmp/quorum-review)
+          if [ -n "$LANG_OVERRIDE" ]; then
+            ARGS+=(--lang "$LANG_OVERRIDE")
+          fi
+          python3 engine/orchestrator/build_review_input.py "${ARGS[@]}"
+
+      - name: Run Claude node
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: python3 engine/adapters/claude/adapter.py /tmp/quorum-review claude-sonnet-5
+
+      - name: Post review
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 engine/orchestrator/post_review.py \
+            --findings /tmp/quorum-review/out/findings.json \
+            --repo "${{ github.repository }}" \
+            --pr "${{ github.event.issue.number }}" \
+            --api-base "${{ github.api_url }}"
