@@ -17,8 +17,19 @@ try:
 except ImportError:
     yaml = None
 
-REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-ROLE_FILE = REPO_ROOT / "harness" / "role.md"
+ENGINE_ROOT = Path(__file__).resolve().parent.parent.parent
+ROLE_FILE = ENGINE_ROOT / "harness" / "role.md"
+
+# The repo actually being reviewed. When this script lives in the same repo as
+# the project (lumen-quorum reviewing its own demo-project), that's the same
+# directory as ENGINE_ROOT. When the engine is checked out cross-repo (e.g. as
+# .quorum-engine/ inside some other project's own repo -- the normal case per
+# docs/architecture.md sec. 1, "a project lives wherever the adopting team
+# wants"), it is NOT -- it's wherever this script was actually invoked from.
+# The workflow's own convention (both the single-repo and cross-repo
+# quorum-review.yml) is to run this script with cwd already at the project
+# repo's root, so cwd is the right source of truth here, not __file__.
+PROJECT_ROOT = Path.cwd()
 DEFAULT_LANGUAGE = "en"
 
 
@@ -67,7 +78,7 @@ def main():
 
     diff = subprocess.run(
         ["git", "diff", f"{args.base}...{args.head}"],
-        cwd=str(REPO_ROOT), capture_output=True, text=True, check=True,
+        cwd=str(PROJECT_ROOT), capture_output=True, text=True, check=True,
     ).stdout
     (input_dir / "diff.patch").write_text(diff)
     diff_sha = hashlib.sha256(diff.encode()).hexdigest()[:12]
@@ -76,7 +87,7 @@ def main():
     # check in the adapter mechanical rather than "trust the model's self-report."
     files_in_diff = subprocess.run(
         ["git", "diff", "--name-only", f"{args.base}...{args.head}"],
-        cwd=str(REPO_ROOT), capture_output=True, text=True, check=True,
+        cwd=str(PROJECT_ROOT), capture_output=True, text=True, check=True,
     ).stdout.splitlines()
 
     shutil.copy(ROLE_FILE, input_dir / "role.md")
@@ -122,7 +133,7 @@ def main():
             shutil.rmtree(workspace_dst)
         else:
             workspace_dst.unlink()
-    workspace_dst.symlink_to(REPO_ROOT, target_is_directory=True)
+    workspace_dst.symlink_to(PROJECT_ROOT, target_is_directory=True)
 
     print(f"review input built at {out} (language={language}, source={manifest['language_source']})")
     if not diff.strip():
