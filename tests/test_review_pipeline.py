@@ -21,7 +21,7 @@ def _load(module_name: str, rel_path: str):
 
 
 build_review_input = _load("build_review_input", "engine/orchestrator/build_review_input.py")
-adapter = _load("claude_adapter", "engine/adapters/claude/adapter.py")
+adapter = _load("common", "engine/adapters/common.py")
 
 
 class TestResolveLanguage(unittest.TestCase):
