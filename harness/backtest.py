@@ -1,12 +1,23 @@
 #!/usr/bin/env python3
 """M0 backtest harness.
 
-Replays every synthetic PR under demo-project/example-pr/ through the Claude
-adapter twice -- once with no project knowledge, once with the project's
-constitution + invariants -- and scores each run against that PR's
-ground_truth.json. Prints the corpus lift, which is the M0 stop/go gate
-(see docs/roadmap.md).
+Replays a corpus of PRs through the Claude adapter twice -- once with no
+project knowledge, once with the project's constitution + invariants -- and
+scores each run against that PR's ground_truth.json. Prints the corpus lift,
+which is the M0 stop/go gate (see docs/roadmap.md).
+
+By default replays the synthetic corpus under demo-project/example-pr/.
+Pass --corpus <dir> to replay a different corpus instead -- knowledge files
+(constitution.md/invariants.md) live directly in <dir>, and PR fixture dirs
+are auto-detected as any immediate subdirectory of <dir> containing a
+diff.patch. This is how a real adopting project's own corpus gets replayed
+without it ever needing to live under demo-project/ (or, for a company
+corpus, anywhere inside this repo at all -- see the isolation note on
+--corpus below). Pass --out <dir> to control where results get written;
+defaults to harness/results/ for the built-in demo corpus, but an external
+--corpus should always pass an explicit --out outside this repo too.
 """
+import argparse
 import json
 import shutil
 import subprocess
@@ -18,8 +29,9 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 DEMO_PROJECT = REPO_ROOT / "demo-project"
 ADAPTER = REPO_ROOT / "engine" / "adapters" / "claude" / "adapter.py"
 ROLE_FILE = REPO_ROOT / "harness" / "role.md"
-CONSTITUTION_FILE = DEMO_PROJECT / "constitution.md"
-INVARIANTS_FILE = DEMO_PROJECT / "invariants.md"
+
+sys.path.insert(0, str(REPO_ROOT / "engine" / "orchestrator"))
+from build_review_input import load_profile, resolve_language  # noqa: E402
 
 SEVERITY_RANK = {"nit": 0, "minor": 1, "major": 2, "blocking": 3}
 
@@ -41,7 +53,7 @@ def parse_diff_files(diff_text: str) -> list:
     return files
 
 
-def build_review_dir(run_dir: Path, pr_dir: Path, with_knowledge: bool) -> Path:
+def build_review_dir(run_dir: Path, pr_dir: Path, with_knowledge: bool, corpus_root: Path) -> Path:
     review_dir = run_dir / "review"
     input_dir = review_dir / "input"
     input_dir.mkdir(parents=True, exist_ok=True)
@@ -51,14 +63,15 @@ def build_review_dir(run_dir: Path, pr_dir: Path, with_knowledge: bool) -> Path:
     shutil.copy(pr_dir / "diff.patch", input_dir / "diff.patch")
 
     if with_knowledge:
-        shutil.copy(CONSTITUTION_FILE, input_dir / "constitution.md")
+        shutil.copy(corpus_root / "constitution.md", input_dir / "constitution.md")
         project_dir = input_dir / "project"
         project_dir.mkdir(exist_ok=True)
-        shutil.copy(INVARIANTS_FILE, project_dir / "invariants.md")
+        shutil.copy(corpus_root / "invariants.md", project_dir / "invariants.md")
 
+    language, _source = resolve_language(None, load_profile(corpus_root))
     (input_dir / "manifest.json").write_text(json.dumps({
         "files_in_diff": parse_diff_files(diff_text),
-        "language": "en",
+        "language": language,
     }))
 
     workspace_src = pr_dir / "workspace"
@@ -104,11 +117,11 @@ def score(findings: list, ground_truth: dict) -> dict:
     return result
 
 
-def run_condition(pr_dir: Path, with_knowledge: bool, model: str, keep_dir: Path) -> dict:
+def run_condition(pr_dir: Path, with_knowledge: bool, model: str, keep_dir: Path, corpus_root: Path) -> dict:
     label = "with_knowledge" if with_knowledge else "no_knowledge"
     run_dir = keep_dir / label
     run_dir.mkdir(parents=True, exist_ok=True)
-    review_dir = build_review_dir(run_dir, pr_dir, with_knowledge)
+    review_dir = build_review_dir(run_dir, pr_dir, with_knowledge, corpus_root)
 
     t0 = time.time()
     result = subprocess.run(
@@ -127,12 +140,35 @@ def run_condition(pr_dir: Path, with_knowledge: bool, model: str, keep_dir: Path
 
 
 def main():
-    model = sys.argv[1] if len(sys.argv) > 1 else "claude-sonnet-5"
-    results_dir = REPO_ROOT / "harness" / "results" / str(int(time.time()))
-    results_dir.mkdir(parents=True, exist_ok=True)
+    ap = argparse.ArgumentParser()
+    ap.add_argument("model", nargs="?", default="claude-sonnet-5")
+    ap.add_argument(
+        "--corpus", default=None,
+        help="Path to an external corpus dir (constitution.md/invariants.md in the "
+             "root, PR fixture dirs as immediate subdirs containing diff.patch). "
+             "Defaults to the built-in demo-project/example-pr/ corpus. For a "
+             "company/real-project corpus, always pair this with --out pointing "
+             "somewhere outside this repo -- see this file's module docstring.",
+    )
+    ap.add_argument(
+        "--out", default=None,
+        help="Where to write results. Defaults to harness/results/<timestamp> for "
+             "the built-in corpus; required in practice for any --corpus outside "
+             "this repo, so real fixture/finding content never lands in this repo.",
+    )
+    args = ap.parse_args()
+    model = args.model
 
-    pr_dirs = sorted((DEMO_PROJECT / "example-pr").iterdir())
-    pr_dirs = [p for p in pr_dirs if (p / "diff.patch").exists()]
+    if args.corpus:
+        corpus_root = Path(args.corpus).resolve()
+        pr_dirs = sorted(p for p in corpus_root.iterdir() if (p / "diff.patch").exists())
+    else:
+        corpus_root = DEMO_PROJECT
+        pr_dirs = sorted((DEMO_PROJECT / "example-pr").iterdir())
+        pr_dirs = [p for p in pr_dirs if (p / "diff.patch").exists()]
+
+    results_dir = Path(args.out).resolve() if args.out else REPO_ROOT / "harness" / "results" / str(int(time.time()))
+    results_dir.mkdir(parents=True, exist_ok=True)
 
     totals = {
         "no_knowledge": {"tp": 0, "fn": 0, "fp": 0},
@@ -147,7 +183,7 @@ def main():
         row = {"pr": name}
 
         for with_knowledge, key in [(False, "no_knowledge"), (True, "with_knowledge")]:
-            out = run_condition(pr_dir, with_knowledge, model, keep_dir)
+            out = run_condition(pr_dir, with_knowledge, model, keep_dir, corpus_root)
             (keep_dir / f"{key}.json").write_text(json.dumps(out, indent=2))
 
             if out.get("status") != "ok":
