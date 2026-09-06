@@ -1,0 +1,140 @@
+name: Quorum Feedback Ledger
+
+# M2 instrumentation (docs/roadmap.md M2, docs/architecture.md sec. 9). Runs once
+# per merged PR that touched the demo-project codebase, and records what humans
+# did with that PR's Quorum findings:
+#
+#   - implicit signal: a blocking/major finding whose cited line merged unchanged
+#     -> verdict "ignored" (a real human decision, even with no reply/reaction).
+#   - explicit signal: replies / reactions on the posted inline comments
+#     -> verdict "accepted" or "corrected".
+#
+# All classification is pure, unit-tested Python (engine/ledger/*, tests/
+# test_ledger.py). This workflow is only the plumbing: fetch the review run's
+# findings.json, compute the post-review diff, call the capture scripts, and
+# commit the appended ledger.
+#
+# M2-demo simplification (like quorum-review.yml's single-job note): the ledger
+# for this repo's own demo-project is committed straight back to `main` at
+# demo-project/ledger/ledger.jsonl. A real adopting team keeps its ledger in its
+# own knowledge repo (docs/architecture.md sec. 1, 5), not on the trunk of the
+# repo under review. This job holding `contents: write` on the reviewed repo is
+# the demo shortcut, not the target design.
+#
+# NOTE: the artifact-fetch and the assemble_threads API path have not yet been
+# exercised against real merged-PR traffic (docs/roadmap.md M2 open items) --
+# neither this repo nor the PoC mirror has ongoing PRs yet. The workflow follows
+# standard steps; that is an inference, not a verified run.
+
+on:
+  pull_request:
+    types: [closed]
+    paths:
+      - "demo-project/codebase/**"
+
+permissions:
+  contents: write
+  actions: read
+  pull-requests: read
+
+concurrency:
+  group: quorum-ledger-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  ledger:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      LEDGER_PATH: demo-project/ledger/ledger.jsonl
+      REPO: ${{ github.repository }}
+      PR: ${{ github.event.pull_request.number }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+      API_BASE: ${{ github.api_url }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Fetch the review run's findings.json
+        id: fetch
+        run: |
+          RUN_ID=$(gh run list --workflow quorum-review.yml \
+            --json databaseId,headSha,conclusion \
+            --jq "[.[] | select(.headSha==\"$HEAD_SHA\" and .conclusion==\"success\")][0].databaseId")
+          if [ -z "$RUN_ID" ] || [ "$RUN_ID" = "null" ]; then
+            echo "no successful quorum-review run for $HEAD_SHA; nothing to capture"
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          gh run download "$RUN_ID" \
+            --name "quorum-run-${PR}-${RUN_ID}" --dir /tmp/artifact
+          if [ -f /tmp/artifact/out/findings.json ]; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Compute post-review diff (reviewed head -> merged state)
+        if: steps.fetch.outputs.found == 'true'
+        run: |
+          git diff "$HEAD_SHA".."$MERGE_SHA" -- demo-project/codebase > /tmp/merge.diff || true
+
+      - name: Capture implicit signal (ignored findings)
+        if: steps.fetch.outputs.found == 'true'
+        run: |
+          python3 engine/ledger/capture_implicit.py \
+            --findings /tmp/artifact/out/findings.json \
+            --merge-diff /tmp/merge.diff \
+            --repo "$REPO" --pr "$PR" --run-id "$HEAD_SHA" \
+            --ledger "$LEDGER_PATH"
+
+      - name: Capture explicit signal (replies / reactions)
+        if: steps.fetch.outputs.found == 'true'
+        run: |
+          python3 engine/ledger/assemble_threads.py \
+            --findings /tmp/artifact/out/findings.json \
+            --repo "$REPO" --pr "$PR" \
+            --api-base "$API_BASE" \
+            --out /tmp/threads.json
+          python3 engine/ledger/capture_explicit.py \
+            --threads /tmp/threads.json \
+            --repo "$REPO" --pr "$PR" --run-id "$HEAD_SHA" \
+            --ledger "$LEDGER_PATH"
+
+      - name: Regenerate cluster proposals
+        if: steps.fetch.outputs.found == 'true'
+        run: |
+          python3 engine/ledger/promote.py \
+            --ledger "$LEDGER_PATH" \
+            --out demo-project/ledger/proposals.md
+
+      - name: Commit ledger
+        if: steps.fetch.outputs.found == 'true'
+        run: |
+          if git diff --quiet -- demo-project/ledger/; then
+            echo "ledger unchanged, nothing to commit"
+            exit 0
+          fi
+          git config user.name  "quorum-ledger[bot]"
+          git config user.email "quorum-ledger@users.noreply.github.com"
+          git add demo-project/ledger/
+          git commit -m "ledger: record PR #${PR} finding outcomes"
+          git push origin "HEAD:${{ github.event.repository.default_branch }}"
+
+      - name: Upload proposals artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: quorum-ledger-proposals-${{ github.event.pull_request.number }}
+          path: demo-project/ledger/proposals.md
+          if-no-files-found: ignore
+          retention-days: 30

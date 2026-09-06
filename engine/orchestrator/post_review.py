@@ -43,6 +43,13 @@ def format_finding(f: dict) -> str:
     conf = f.get("confidence")
     if conf is not None:
         lines.append(f"_confidence: {conf}_")
+    # Hidden marker: lets the M2 feedback ledger's explicit-capture step map a
+    # human reply/reaction on this comment back to the exact finding, without
+    # fuzzy-matching prose (see engine/ledger/capture_explicit.py). Invisible in
+    # rendered Markdown; harmless if the ledger is never run.
+    key = f.get("finding_key")
+    if key:
+        lines.append(f"\n<!-- quorum:finding_key={key} -->")
     return "\n".join(lines)
 
 

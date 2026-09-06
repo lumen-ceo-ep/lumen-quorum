@@ -37,10 +37,13 @@ and disagreement that stays visible instead of getting averaged away.
 
 ## Status
 
-Pre-MVP. Currently validating whether feeding a project's own knowledge into a single
-review pass produces a measurable accuracy improvement over an unaided reviewer, against
-a synthetic demo project (`demo-project/`) before anything else gets built. See
-`docs/roadmap.md`.
+Pre-MVP, built bottom-up against a synthetic demo project (`demo-project/`). Done: M0
+(project knowledge measurably beats an unaided reviewer — recall +0.75, precision held),
+M1 mechanism (single node live as a GitHub Actions workflow, real inline PR comments),
+and the M2 feedback ledger (`engine/ledger/` — captures what humans do with each posted
+finding, clusters repeated overrides into proposed knowledge-base changes). Not yet
+done: M1's own quality bar (needs a repo with real PR traffic), then adjudication and a
+second vendor. See `docs/roadmap.md`.
 
 ## License
 

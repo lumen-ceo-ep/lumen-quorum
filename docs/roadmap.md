@@ -151,6 +151,32 @@ requiring a human to keep score by hand.
 building a consensus layer without any data on what "correct" looks like in practice is
 building something that can't be tuned.
 
+**Implemented (2026-09-06): the mechanism, not yet any data.** `engine/ledger/` plus
+`.github/workflows/quorum-ledger.yml`:
+
+- **Record + store** (`record.py`): append-only JSONL, one entry per
+  finding-per-signal; `finding_key` (stable per posted finding, survives the evidence
+  gate's claim annotation) and `cluster_key` (coarse: file-pattern / category / cited
+  rule); dedup-aware append so re-running a capture can't double-count.
+- **Implicit capture** (`capture_implicit.py`): parses the reviewed-head→merge diff,
+  flags every `blocking`/`major` finding whose cited line (± a small window) is
+  untouched as `ignored`.
+- **Explicit capture** (`capture_explicit.py` + `assemble_threads.py`): maps replies /
+  reactions back to a finding via the HTML marker `post_review.py` now embeds in each
+  comment; keyword classifier, biased toward `corrected` so the dispute rate it reports
+  is an upper bound.
+- **Clustering** (`cluster.py`): groups by `cluster_key` across *distinct PRs* (not
+  records), floor of 3, `accepted` excluded.
+- **Promotion** (`promote.py`): renders a cluster into a human-readable *proposed*
+  knowledge-base change. Never edits `invariants.md`/`constitution.md`.
+- 37 unit tests (`tests/test_ledger.py`), no network, wired into the existing
+  `test.yml`. Full pre-existing suite still green (66 total).
+
+**Still open:** `quorum-ledger.yml`'s artifact fetch and `assemble_threads.py`'s API
+path have not run against a real merged PR — same gap as M1's live workflows, and for
+the same reason (no repo running this has ongoing PR traffic yet). The classification
+core is fully tested; the CI plumbing around it is standard-but-unverified.
+
 ## M3 — Multiple roles, one vendor
 
 Fan out to several role-specialized nodes (correctness, convention-vs-knowledge-base,

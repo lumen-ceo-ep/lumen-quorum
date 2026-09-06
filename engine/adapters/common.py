@@ -10,7 +10,11 @@ invoke that vendor's CLI and how to parse its particular output envelope.
 """
 import json
 import re
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "ledger"))
+from record import stamp_keys  # noqa: E402
 
 FINDINGS_SCHEMA_HINT = """
 Output ONLY a single JSON object (no prose before or after, no markdown fences)
@@ -234,6 +238,12 @@ def postprocess(review_dir: Path, findings_obj: dict) -> dict:
     findings_obj.setdefault("status", "ok")
     findings_obj.setdefault("findings", [])
     findings_obj["language"] = load_language(review_dir)
+    # Stamp the ledger keys before the gate runs, off the finding's original
+    # claim -- so a demoted finding keeps the same finding_key it would have had
+    # undemoted, and the M2 feedback ledger can correlate across runs (see
+    # engine/ledger/record.py, docs/architecture.md sec. 9).
+    for finding in findings_obj["findings"]:
+        stamp_keys(finding)
     findings_obj["findings"], gate_demotions = apply_evidence_gate(findings_obj["findings"])
     if gate_demotions:
         findings_obj["evidence_gate_demotions"] = gate_demotions
