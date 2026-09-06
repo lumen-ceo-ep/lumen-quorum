@@ -1,0 +1,130 @@
+name: Quorum Review (role fan-out)
+
+# M3: the multi-role shape of docs/architecture.md sec. 5 -- a planning step, a
+# dynamic matrix with one isolated job per role, and a fan-in job that runs
+# Stage 1 mechanical aggregation (engine/orchestrator/aggregate.py) and posts one
+# combined review.
+#
+# This runs *alongside* quorum-review.yml (the proven M1 single-node path), not
+# instead of it -- flip which one is active once the fan-out has a measured
+# marginal-contribution result (docs/roadmap.md M3 stop condition). Until then
+# it's opt-in via workflow_dispatch only, so it never spends 3x the budget on
+# every PR before it's earned that.
+#
+# Each role job holds only `contents: read`; posting is a separate job with
+# `pull-requests: write`, so no node ever has PR write access
+# (docs/architecture.md sec. 5, 8). Per-node credential isolation (a distinct
+# secret per role) is a further step not taken here -- all role jobs currently
+# share one ANTHROPIC secret.
+#
+# NOTE: not yet run end to end (no repo on this engine has PR traffic). The steps
+# mirror quorum-review.yml, which is proven.
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: "PR number to review"
+        required: true
+      roles:
+        description: "comma-separated roles from engine/roles/"
+        default: "correctness,convention,simplification"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: quorum-fanout-${{ github.event.inputs.pr }}
+  cancel-in-progress: true
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      roles: ${{ steps.parse.outputs.roles }}
+      base_sha: ${{ steps.sha.outputs.base }}
+      head_sha: ${{ steps.sha.outputs.head }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: parse
+        env:
+          ROLES_IN: ${{ github.event.inputs.roles }}
+        run: |
+          python3 -c "import json,os;print('roles='+json.dumps([r.strip() for r in os.environ['ROLES_IN'].split(',') if r.strip()]))" >> "$GITHUB_OUTPUT"
+      - id: sha
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 engine/orchestrator/resolve_pr.py \
+            --repo "${{ github.repository }}" --pr "${{ github.event.inputs.pr }}" \
+            --api-base "${{ github.api_url }}" | while read -r line; do
+              case "$line" in
+                BASE_SHA=*) echo "base=${line#BASE_SHA=}" >> "$GITHUB_OUTPUT" ;;
+                HEAD_SHA=*) echo "head=${line#HEAD_SHA=}" >> "$GITHUB_OUTPUT" ;;
+              esac
+            done
+
+  node:
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        role: ${{ fromJSON(needs.plan.outputs.roles) }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.plan.outputs.head_sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: npm install -g @anthropic-ai/claude-code
+      - name: Build review input
+        run: |
+          python3 engine/orchestrator/build_review_input.py \
+            --base "${{ needs.plan.outputs.base_sha }}" \
+            --head "${{ needs.plan.outputs.head_sha }}" \
+            --project demo-project --out /tmp/quorum-review
+          cp "engine/roles/${{ matrix.role }}.md" /tmp/quorum-review/input/role.md
+      - name: Run node
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: python3 engine/adapters/claude/adapter.py /tmp/quorum-review claude-sonnet-5
+      - uses: actions/upload-artifact@v4
+        with:
+          name: node-${{ matrix.role }}
+          path: /tmp/quorum-review/out/findings.json
+
+  combine:
+    needs: [plan, node]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: /tmp/nodes
+      - name: Stage 1 aggregate
+        run: |
+          ARGS=()
+          for d in /tmp/nodes/node-*; do
+            role="${d##*/node-}"
+            ARGS+=(--node "${role}=${d}/findings.json")
+          done
+          python3 engine/orchestrator/aggregate.py "${ARGS[@]}" --out /tmp/aggregate.json
+      - name: Post combined review
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 engine/orchestrator/post_review.py \
+            --findings /tmp/aggregate.json \
+            --repo "${{ github.repository }}" \
+            --pr "${{ github.event.inputs.pr }}" \
+            --api-base "${{ github.api_url }}"

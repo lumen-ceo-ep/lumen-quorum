@@ -220,8 +220,13 @@ more.
 - **Posting** (`post_review.py`): renders "raised independently by N role(s)" per
   cluster and a node-failure warning line so a dead node never reads as a clean pass.
 
-**Not done:** the actual marginal-contribution run (needs paid model calls) and the
-per-role CI matrix workflow.
+- **CI matrix** (`quorum-review-fanout.yml`): plan → dynamic matrix (one isolated
+  `contents: read` job per role) → fan-in job that aggregates and posts one combined
+  review. `workflow_dispatch`-only for now, so it never spends 3× the budget on every
+  PR before it's earned that. Not yet run end to end (no PR traffic), and all role jobs
+  still share one credential — per-node credential isolation is a further step.
+
+**Not done:** the actual marginal-contribution measurement run (needs paid model calls).
 
 ## M4 — Adjudication
 

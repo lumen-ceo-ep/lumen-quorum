@@ -37,13 +37,23 @@ and disagreement that stays visible instead of getting averaged away.
 
 ## Status
 
-Pre-MVP, built bottom-up against a synthetic demo project (`demo-project/`). Done: M0
-(project knowledge measurably beats an unaided reviewer — recall +0.75, precision held),
-M1 mechanism (single node live as a GitHub Actions workflow, real inline PR comments),
-and the M2 feedback ledger (`engine/ledger/` — captures what humans do with each posted
-finding, clusters repeated overrides into proposed knowledge-base changes). Not yet
-done: M1's own quality bar (needs a repo with real PR traffic), then adjudication and a
-second vendor. See `docs/roadmap.md`.
+Pre-MVP, built bottom-up against a synthetic demo project (`demo-project/`).
+
+- **M0** — project knowledge measurably beats an unaided reviewer (recall +0.75,
+  precision held). Done.
+- **M1** — single node live as a GitHub Actions workflow, real inline PR comments.
+  Mechanism proven; its own 2-week quality bar needs a repo with real PR traffic.
+- **M2** — feedback ledger (`engine/ledger/`): captures what humans do with each posted
+  finding (explicit replies + implicit "merged unchanged"), clusters repeated overrides
+  across PRs into *proposed* knowledge-base changes. Mechanism + synthetic worked
+  example done; real data needs traffic.
+- **M3** — role fan-out (`engine/roles/`) + Stage 1 mechanical aggregation
+  (`engine/orchestrator/aggregate.py`). Mechanism + CI matrix done; the
+  marginal-contribution measurement needs paid runs.
+- **Tier 2 routing** (`routes.yaml` → the knowledge slice a diff needs) is now real.
+
+Next: the measurement runs above, then M4 adjudication, then a second vendor. See
+`docs/roadmap.md`.
 
 ## License
 
