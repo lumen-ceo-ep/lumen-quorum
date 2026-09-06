@@ -128,13 +128,13 @@ def stamp_keys(finding: dict) -> dict:
 
 
 def make_record(*, repo: str, pr: int, finding: dict, verdict: str, signal: str,
-                detail: str = "", run_id: str = "", ts: str = None) -> dict:
+                detail: str = "", run_id: str = "", ts: str = None, id: str = None) -> dict:
     if verdict not in VERDICTS:
         raise ValueError(f"verdict must be one of {VERDICTS}, got {verdict!r}")
     if signal not in SIGNALS:
         raise ValueError(f"signal must be one of {SIGNALS}, got {signal!r}")
     return {
-        "id": str(uuid.uuid4()),
+        "id": id or str(uuid.uuid4()),
         "ts": ts or iso_now(),
         "repo": repo,
         "pr": int(pr),
