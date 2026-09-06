@@ -187,8 +187,19 @@ def build_prompt(review_dir: Path) -> str:
     else:
         constitution_block = ""
 
+    full_dir = input_dir / "project-full"
+    tier3_note = ""
+    if full_dir.exists() and any(full_dir.iterdir()):
+        names = ", ".join(sorted(p.name for p in full_dir.iterdir() if p.is_file()))
+        tier3_note = (
+            f"\n\nThe routed slice above is the knowledge matched to this diff's "
+            f"changed files. The *full* knowledge base ({names}) is available read-only "
+            f"at `{full_dir.resolve()}` -- read it directly if you need a rule that "
+            f"wasn't routed here (e.g. checking whether a pattern is covered elsewhere)."
+        )
+
     if project_docs.strip():
-        knowledge_block = "\n## Project knowledge (routed for this diff)\n" + project_docs
+        knowledge_block = "\n## Project knowledge (routed for this diff)\n" + project_docs + tier3_note
     else:
         knowledge_block = (
             "\n## Project knowledge\n"

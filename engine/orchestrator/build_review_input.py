@@ -10,7 +10,11 @@ import hashlib
 import json
 import shutil
 import subprocess
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import route  # noqa: E402
 
 try:
     import yaml
@@ -97,11 +101,26 @@ def main():
     if constitution.exists():
         shutil.copy(constitution, input_dir / "constitution.md")
 
-    invariants = project_dir / "invariants.md"
-    if invariants.exists():
-        proj_out = input_dir / "project"
-        proj_out.mkdir(exist_ok=True)
-        shutil.copy(invariants, proj_out / "invariants.md")
+    # Tier 2 (routed slice) + Tier 3 (full KB for search), per docs/architecture.md
+    # sec. 1-2. Routing reads routes.yaml and assembles only the doc sections a
+    # changed-file pattern actually matched; if there's no usable routes.yaml we
+    # fall back to copying invariants.md whole, which is what this script did
+    # before routing existed.
+    proj_out = input_dir / "project"
+    routed = route.routed_refs(project_dir, files_in_diff)
+    routed_docs = route.write_slice(project_dir, routed, proj_out) if routed else []
+    if not routed_docs:
+        invariants = project_dir / "invariants.md"
+        if invariants.exists():
+            proj_out.mkdir(parents=True, exist_ok=True)
+            shutil.copy(invariants, proj_out / "invariants.md")
+
+    # Tier 3: the whole knowledge base, read-only, for a node to grep when a
+    # routed slice isn't enough ("does this pattern exist anywhere in the rules").
+    full_out = input_dir / "project-full"
+    full_out.mkdir(parents=True, exist_ok=True)
+    for doc in sorted(project_dir.glob("*.md")):
+        shutil.copy(doc, full_out / doc.name)
 
     profile = load_profile(project_dir)
     language, language_source = resolve_language(args.lang, profile)
@@ -115,6 +134,7 @@ def main():
         "head": args.head,
         "diff_sha": diff_sha,
         "files_in_diff": files_in_diff,
+        "routed_docs": routed_docs,
         "language": language,
         "language_source": language_source,
     }

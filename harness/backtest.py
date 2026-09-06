@@ -31,6 +31,7 @@ ADAPTER = REPO_ROOT / "engine" / "adapters" / "claude" / "adapter.py"
 ROLE_FILE = REPO_ROOT / "harness" / "role.md"
 
 sys.path.insert(0, str(REPO_ROOT / "engine" / "orchestrator"))
+import route  # noqa: E402
 from build_review_input import load_profile, resolve_language  # noqa: E402
 
 SEVERITY_RANK = {"nit": 0, "minor": 1, "major": 2, "blocking": 3}
@@ -62,15 +63,27 @@ def build_review_dir(run_dir: Path, pr_dir: Path, with_knowledge: bool, corpus_r
     diff_text = (pr_dir / "diff.patch").read_text()
     shutil.copy(pr_dir / "diff.patch", input_dir / "diff.patch")
 
+    files_in_diff = parse_diff_files(diff_text)
+    routed_docs = []
     if with_knowledge:
         shutil.copy(corpus_root / "constitution.md", input_dir / "constitution.md")
         project_dir = input_dir / "project"
-        project_dir.mkdir(exist_ok=True)
-        shutil.copy(corpus_root / "invariants.md", project_dir / "invariants.md")
+        # Same Tier 2 routing / whole-file fallback the live orchestrator uses,
+        # so an M0 backtest measures the routed slice, not the full KB.
+        routed = route.routed_refs(corpus_root, files_in_diff)
+        routed_docs = route.write_slice(corpus_root, routed, project_dir) if routed else []
+        if not routed_docs:
+            project_dir.mkdir(exist_ok=True)
+            shutil.copy(corpus_root / "invariants.md", project_dir / "invariants.md")
+        full_out = input_dir / "project-full"
+        full_out.mkdir(exist_ok=True)
+        for doc in sorted(Path(corpus_root).glob("*.md")):
+            shutil.copy(doc, full_out / doc.name)
 
     language, _source = resolve_language(None, load_profile(corpus_root))
     (input_dir / "manifest.json").write_text(json.dumps({
-        "files_in_diff": parse_diff_files(diff_text),
+        "files_in_diff": files_in_diff,
+        "routed_docs": routed_docs,
         "language": language,
     }))
 

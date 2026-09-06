@@ -104,6 +104,18 @@ in what M1 already claimed:**
   this hardening changed the actual review behavior, confirming it as pure robustness
   work, not a quality regression.
 
+**Hardening pass (2026-09-06), Tier 2 routing:**
+
+- `routes.yaml` was in the schema and the demo project from the start but no code
+  read it — `build_review_input.py` copied the whole `invariants.md` into the "routed"
+  slice. `engine/orchestrator/route.py` now does the real thing: match each changed
+  file against the route globs (at any path depth), extract just the cited markdown
+  sections (`invariants.md#INV-2` → that one `## INV-2` block), and assemble them into
+  `input/project/`. The full KB is copied to `input/project-full/` (Tier 3) and the
+  node prompt points at it for rules that weren't routed. Wired into the live
+  orchestrator and the backtest harness identically. 13 unit tests (`tests/
+  test_routing.py`). An M0 regression run is still pending (needs paid model calls).
+
 **Still open from the hardening pass, not yet closed out:**
 
 - `quorum-review-command.yml` (the `/review lang=<x>` comment trigger) has only been
