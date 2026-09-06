@@ -33,6 +33,10 @@ def api(method: str, url: str, token: str, body: dict = None) -> dict:
 def format_finding(f: dict) -> str:
     emoji = SEVERITY_EMOJI.get(f.get("severity", "minor"), "")
     lines = [f"{emoji} **{f.get('severity', '?').upper()} / {f.get('category', '?')}** -- {f.get('claim', '')}"]
+    raised_by = f.get("raised_by")
+    if raised_by:
+        lines.append(f"\n_raised independently by {f.get('roles_count', len(raised_by))} "
+                     f"role(s): {', '.join(raised_by)}_")
     scenario = f.get("failure_scenario")
     if scenario:
         lines.append(f"\n{scenario}")
@@ -73,7 +77,19 @@ def main():
 
     base = f"{args.api_base}/repos/{args.repo}"
 
-    if status != "ok":
+    # "partial" comes from aggregate.py: some nodes ran, at least one errored.
+    # Post the findings that did come back, but say so -- a silently-dead node
+    # must never look like a clean vote (docs/architecture.md sec. 2, 3).
+    node_note = ""
+    if obj.get("nodes"):
+        failed = [n for n in obj["nodes"] if n.get("status") != "ok"]
+        if failed:
+            node_note = (
+                "\n\n_node warning: " + ", ".join(f"`{n['role']}` ({n['status']})" for n in failed)
+                + " did not complete; findings below are from the remaining node(s) only._"
+            )
+
+    if status == "error" or (status != "ok" and status != "partial"):
         body = (
             f"**Quorum review did not complete.** status={status}\n\n"
             f"```\n{obj.get('error', 'no error detail')}\n```"
@@ -83,7 +99,7 @@ def main():
         return
 
     if not findings:
-        summary = "**Quorum review: no findings.**"
+        summary = "**Quorum review: no findings.**" + node_note
         if usage.get("total_cost_usd") is not None:
             summary += f"\n\n_cost: ${usage['total_cost_usd']:.4f}_"
         api("POST", f"{base}/issues/{args.pr}/comments", args.token, {"body": summary})
@@ -101,7 +117,7 @@ def main():
         if f.get("file")
     ]
 
-    summary_lines = [f"**Quorum review -- {len(findings)} finding(s)**"]
+    summary_lines = [f"**Quorum review -- {len(findings)} finding(s)**" + node_note]
     coverage = obj.get("coverage", {})
     if coverage.get("not_read_reason"):
         summary_lines.append(f"\n_coverage warning: not all diff files were read ({coverage['not_read_reason']})_")

@@ -117,8 +117,10 @@ a GitLab port later is an adapter concern, not a rewrite.
 ## 3. Convergence: two stages, not a vote
 
 **Stage 1 — mechanical clustering (no model call).** Findings from every node are
-grouped by (file, hunk, category). Pure deduplication, fully deterministic and
-auditable.
+grouped by (file, category, line-proximity). Pure deduplication, fully deterministic
+and auditable. Implemented in `engine/orchestrator/aggregate.py` (M3): a cluster
+carries `raised_by` / `roles_count` and keeps every raw finding under `members`;
+an errored node contributes nothing and never counts as a clean vote.
 
 **Stage 2 — adjudication, not voting.** One designated pass reviews each group against
 the actual diff and the actual project knowledge — not against how many nodes raised it.

@@ -29,9 +29,11 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 DEMO_PROJECT = REPO_ROOT / "demo-project"
 ADAPTER = REPO_ROOT / "engine" / "adapters" / "claude" / "adapter.py"
 ROLE_FILE = REPO_ROOT / "harness" / "role.md"
+ROLES_DIR = REPO_ROOT / "engine" / "roles"
 
 sys.path.insert(0, str(REPO_ROOT / "engine" / "orchestrator"))
 import route  # noqa: E402
+from aggregate import aggregate  # noqa: E402
 from build_review_input import load_profile, resolve_language  # noqa: E402
 
 SEVERITY_RANK = {"nit": 0, "minor": 1, "major": 2, "blocking": 3}
@@ -54,12 +56,13 @@ def parse_diff_files(diff_text: str) -> list:
     return files
 
 
-def build_review_dir(run_dir: Path, pr_dir: Path, with_knowledge: bool, corpus_root: Path) -> Path:
+def build_review_dir(run_dir: Path, pr_dir: Path, with_knowledge: bool, corpus_root: Path,
+                     role_file: Path = ROLE_FILE) -> Path:
     review_dir = run_dir / "review"
     input_dir = review_dir / "input"
     input_dir.mkdir(parents=True, exist_ok=True)
 
-    shutil.copy(ROLE_FILE, input_dir / "role.md")
+    shutil.copy(role_file, input_dir / "role.md")
     diff_text = (pr_dir / "diff.patch").read_text()
     shutil.copy(pr_dir / "diff.patch", input_dir / "diff.patch")
 
@@ -130,26 +133,49 @@ def score(findings: list, ground_truth: dict) -> dict:
     return result
 
 
-def run_condition(pr_dir: Path, with_knowledge: bool, model: str, keep_dir: Path, corpus_root: Path) -> dict:
-    label = "with_knowledge" if with_knowledge else "no_knowledge"
-    run_dir = keep_dir / label
-    run_dir.mkdir(parents=True, exist_ok=True)
-    review_dir = build_review_dir(run_dir, pr_dir, with_knowledge, corpus_root)
-
+def _run_one_node(review_dir: Path, model: str) -> dict:
     t0 = time.time()
     result = subprocess.run(
         [sys.executable, str(ADAPTER), str(review_dir), model],
         capture_output=True, text=True,
     )
-    elapsed = time.time() - t0
-
+    elapsed = round(time.time() - t0, 1)
     out_path = review_dir / "out" / "findings.json"
     if not out_path.exists():
-        return {"status": "error", "error": f"adapter produced no output; stderr: {result.stderr[:1000]}",
-                "findings": [], "elapsed_s": elapsed}
-    findings_obj = json.loads(out_path.read_text())
-    findings_obj["elapsed_s"] = round(elapsed, 1)
-    return findings_obj
+        return {"status": "error", "elapsed_s": elapsed,
+                "error": f"adapter produced no output; stderr: {result.stderr[:1000]}",
+                "findings": []}
+    obj = json.loads(out_path.read_text())
+    obj["elapsed_s"] = elapsed
+    return obj
+
+
+def run_condition(pr_dir: Path, with_knowledge: bool, model: str, keep_dir: Path,
+                  corpus_root: Path, roles=None) -> dict:
+    label = "with_knowledge" if with_knowledge else "no_knowledge"
+    run_dir = keep_dir / label
+    run_dir.mkdir(parents=True, exist_ok=True)
+
+    # Single-node (M0/M1): one generalist pass. Multi-role (M3): one pass per
+    # role, then Stage 1 mechanical aggregation -- scored exactly the same way,
+    # so the roadmap's "each role's marginal contribution" question is just a
+    # diff between two summary.json files.
+    if not roles:
+        review_dir = build_review_dir(run_dir, pr_dir, with_knowledge, corpus_root)
+        return _run_one_node(review_dir, model)
+
+    node_outputs = []
+    for role in roles:
+        role_file = ROLES_DIR / f"{role}.md"
+        review_dir = build_review_dir(run_dir / role, pr_dir, with_knowledge, corpus_root,
+                                      role_file=role_file)
+        obj = _run_one_node(review_dir, model)
+        (run_dir / f"{role}.json").write_text(json.dumps(obj, indent=2))
+        node_outputs.append((role, obj))
+
+    agg = aggregate(node_outputs)
+    agg["per_role"] = {r: o.get("status") for r, o in node_outputs}
+    return agg
 
 
 def main():
@@ -169,8 +195,22 @@ def main():
              "the built-in corpus; required in practice for any --corpus outside "
              "this repo, so real fixture/finding content never lands in this repo.",
     )
+    ap.add_argument(
+        "--roles", default=None,
+        help="Comma-separated role names from engine/roles/ (e.g. "
+             "'correctness,convention,simplification'). When set, the with/without-"
+             "knowledge passes each fan out to one node per role and are combined "
+             "with Stage 1 mechanical aggregation (M3). Omit for the single-node "
+             "M0/M1 path.",
+    )
     args = ap.parse_args()
     model = args.model
+    roles = [r.strip() for r in args.roles.split(",")] if args.roles else None
+    if roles:
+        missing = [r for r in roles if not (ROLES_DIR / f"{r}.md").exists()]
+        if missing:
+            raise SystemExit(f"unknown role(s): {missing}; have "
+                             f"{sorted(p.stem for p in ROLES_DIR.glob('*.md'))}")
 
     if args.corpus:
         corpus_root = Path(args.corpus).resolve()
@@ -196,12 +236,12 @@ def main():
         row = {"pr": name}
 
         for with_knowledge, key in [(False, "no_knowledge"), (True, "with_knowledge")]:
-            out = run_condition(pr_dir, with_knowledge, model, keep_dir, corpus_root)
+            out = run_condition(pr_dir, with_knowledge, model, keep_dir, corpus_root, roles=roles)
             (keep_dir / f"{key}.json").write_text(json.dumps(out, indent=2))
 
-            if out.get("status") != "ok":
+            if out.get("status") not in ("ok", "partial"):
                 print(f"[{name}] {key}: ADAPTER ERROR: {out.get('error')}")
-                row[key] = {"status": "error"}
+                row[key] = {"status": out.get("status", "error")}
                 continue
 
             sc = score(out.get("findings", []), ground_truth)
@@ -228,7 +268,7 @@ def main():
     print(f"with_knowledge: precision={p1:.2f} recall={r1:.2f}  (tp={totals['with_knowledge']['tp']} fn={totals['with_knowledge']['fn']} fp={totals['with_knowledge']['fp']})")
     print(f"lift: precision {p1 - p0:+.2f}, recall {r1 - r0:+.2f}")
 
-    summary = {"model": model, "totals": totals, "rows": rows,
+    summary = {"model": model, "roles": roles, "totals": totals, "rows": rows,
                "lift": {"precision": p1 - p0, "recall": r1 - r0}}
     (results_dir / "summary.json").write_text(json.dumps(summary, indent=2))
     print(f"\nfull results: {results_dir}")

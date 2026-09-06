@@ -200,6 +200,29 @@ raised them.
 surfaced, later confirmed correct). Drop roles that don't earn their cost before adding
 more.
 
+**Implemented (2026-09-06): the mechanism, no measurement run yet.**
+
+- **Roles** (`engine/roles/`): `correctness`, `convention`, `simplification`, plus the
+  original `generalist`. Each role.md tells the node it's one of several and to stay in
+  its lane.
+- **Stage 1 aggregation** (`engine/orchestrator/aggregate.py`): pure, no model call.
+  Groups findings from every node by `(file, category, line-proximity)`; a cluster
+  carries `raised_by` / `roles_count` and preserves every raw finding under `members`
+  (nothing deleted — architecture sec. 3). An errored node is recorded and contributes
+  nothing; if every node errored the aggregate is `error`, not empty-`ok`; a mix is
+  `partial`. 17 unit tests (`tests/test_aggregate.py`).
+- **Fan-out runner** (`engine/orchestrator/run_roles.py`): sequential local runner —
+  one node per role against the same input, then aggregate. The CI matrix shape is
+  still M3+ work; this keeps the harness and a manual run on one code path meanwhile.
+- **Backtest** (`harness/backtest.py --roles a,b,c`): each with/without-knowledge pass
+  fans out and aggregates, scored identically — so the stop-condition measurement is a
+  diff between two `summary.json` files.
+- **Posting** (`post_review.py`): renders "raised independently by N role(s)" per
+  cluster and a node-failure warning line so a dead node never reads as a clean pass.
+
+**Not done:** the actual marginal-contribution run (needs paid model calls) and the
+per-role CI matrix workflow.
+
 ## M4 — Adjudication
 
 Add the Stage 2 adjudicator and the three-bucket (verified/contested/refuted) output.
