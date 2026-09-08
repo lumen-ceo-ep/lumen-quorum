@@ -73,6 +73,20 @@ def project_refs(finding: dict) -> list:
     return sorted(refs)
 
 
+def path_suffix_match(a: str, b: str) -> bool:
+    """True if two file paths refer to the same file across the repo-relative vs.
+    workspace-relative convention mismatch: an exact match, or one is a
+    path-component suffix of the other ("queue/lifecycle.py" ==
+    "demo-project/codebase/queue/lifecycle.py"). Shared by the adapter's coverage
+    check and the ledger's implicit-capture file matching so the rule lives once.
+    """
+    a = (a or "").strip()
+    b = (b or "").strip()
+    if not a or not b:
+        return False
+    return a == b or a.endswith("/" + b) or b.endswith("/" + a)
+
+
 def file_pattern(path: str) -> str:
     """Generalizes a concrete file path to a coarse pattern for clustering.
     "demo-project/codebase/queue/lifecycle.py" -> "demo-project/codebase/queue/*".

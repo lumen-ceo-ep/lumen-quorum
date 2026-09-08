@@ -73,6 +73,15 @@ class TestKeyDerivation(unittest.TestCase):
                          "demo-project/codebase/queue/*")
         self.assertEqual(record.file_pattern("lifecycle.py"), "lifecycle.py")
 
+    def test_path_suffix_match(self):
+        m = record.path_suffix_match
+        self.assertTrue(m("queue/lifecycle.py", "demo-project/codebase/queue/lifecycle.py"))
+        self.assertTrue(m("demo-project/codebase/queue/lifecycle.py", "queue/lifecycle.py"))
+        self.assertTrue(m("a/b.py", "a/b.py"))
+        self.assertFalse(m("queue/enqueue.py", "queue/lifecycle.py"))
+        self.assertFalse(m("lifecycle.py", "notlifecycle.py"))  # not a component boundary
+        self.assertFalse(m("", "a.py"))
+
     def test_stamp_keys_is_in_place_and_complete(self):
         f = _finding()
         out = record.stamp_keys(f)

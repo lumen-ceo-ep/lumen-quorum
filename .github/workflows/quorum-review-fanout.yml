@@ -17,6 +17,12 @@ name: Quorum Review (role fan-out)
 # secret per role) is a further step not taken here -- all role jobs currently
 # share one ANTHROPIC secret.
 #
+# Security (ENG-6 / architecture sec. 8.1): `inputs.pr` and `inputs.roles` are
+# free-text workflow_dispatch fields -- attacker-typed, NOT GitHub-validated like
+# `github.event.pull_request.number`. The `plan` job validates `pr` is a bare
+# integer and fails closed otherwise; every value derived from an input reaches a
+# `run:` script only through `env:`, never `${{ }}` spliced into the script text.
+#
 # NOTE: not yet run end to end (no repo on this engine has PR traffic). The steps
 # mirror quorum-review.yml, which is proven.
 
@@ -34,29 +40,49 @@ permissions:
   contents: read
 
 concurrency:
-  group: quorum-fanout-${{ github.event.inputs.pr }}
-  cancel-in-progress: true
+  # inputs.pr is validated in the plan job; this label context is not a shell,
+  # but keep the group stable-ish by only trusting it after that check runs.
+  group: quorum-fanout-${{ github.run_id }}
+  cancel-in-progress: false
 
 jobs:
   plan:
     runs-on: ubuntu-latest
     outputs:
+      pr: ${{ steps.validate.outputs.pr }}
       roles: ${{ steps.parse.outputs.roles }}
       base_sha: ${{ steps.sha.outputs.base }}
       head_sha: ${{ steps.sha.outputs.head }}
     steps:
       - uses: actions/checkout@v4
-      - id: parse
+
+      - name: Validate inputs
+        id: validate
+        env:
+          PR_IN: ${{ github.event.inputs.pr }}
+        run: |
+          # fail closed on anything that isn't a bare positive integer
+          if ! printf '%s' "$PR_IN" | grep -qE '^[1-9][0-9]*$'; then
+            echo "::error::pr input must be a positive integer, got: $PR_IN"
+            exit 1
+          fi
+          echo "pr=$PR_IN" >> "$GITHUB_OUTPUT"
+
+      - name: Parse roles
+        id: parse
         env:
           ROLES_IN: ${{ github.event.inputs.roles }}
         run: |
-          python3 -c "import json,os;print('roles='+json.dumps([r.strip() for r in os.environ['ROLES_IN'].split(',') if r.strip()]))" >> "$GITHUB_OUTPUT"
-      - id: sha
+          python3 -c "import json,os,re; rs=[r.strip() for r in os.environ['ROLES_IN'].split(',') if r.strip()]; assert all(re.fullmatch(r'[a-z0-9_-]+', r) for r in rs), rs; print('roles='+json.dumps(rs))" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve PR base/head SHAs
+        id: sha
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ steps.validate.outputs.pr }}
         run: |
           python3 engine/orchestrator/resolve_pr.py \
-            --repo "${{ github.repository }}" --pr "${{ github.event.inputs.pr }}" \
+            --repo "${{ github.repository }}" --pr "$PR" \
             --api-base "${{ github.api_url }}" | while read -r line; do
               case "$line" in
                 BASE_SHA=*) echo "base=${line#BASE_SHA=}" >> "$GITHUB_OUTPUT" ;;
@@ -86,15 +112,17 @@ jobs:
       - name: Build review input
         env:
           ROLE: ${{ matrix.role }}
+          PR: ${{ needs.plan.outputs.pr }}
+          BASE: ${{ needs.plan.outputs.base_sha }}
+          HEAD: ${{ needs.plan.outputs.head_sha }}
         run: |
           # workflow_dispatch has no pull_request event payload, so PR title/body
           # aren't wired here yet -- build_review_input treats their absence as fine.
           python3 engine/orchestrator/build_review_input.py \
-            --base "${{ needs.plan.outputs.base_sha }}" \
-            --head "${{ needs.plan.outputs.head_sha }}" \
+            --base "$BASE" --head "$HEAD" \
             --project demo-project --out /tmp/quorum-review \
             --model claude-sonnet-5 --vendor claude --role "$ROLE" \
-            --pr-number "${{ github.event.inputs.pr }}"
+            --pr-number "$PR"
           cp "engine/roles/${ROLE}.md" /tmp/quorum-review/input/role.md
       - name: Run node
         env:
@@ -126,10 +154,12 @@ jobs:
           path: /tmp/nodes
 
       - name: Rebuild review input (for the adjudicator's diff + knowledge context)
+        env:
+          BASE: ${{ needs.plan.outputs.base_sha }}
+          HEAD: ${{ needs.plan.outputs.head_sha }}
         run: |
           python3 engine/orchestrator/build_review_input.py \
-            --base "${{ needs.plan.outputs.base_sha }}" \
-            --head "${{ needs.plan.outputs.head_sha }}" \
+            --base "$BASE" --head "$HEAD" \
             --project demo-project --out /tmp/quorum-review
 
       - name: Stage 1 aggregate
@@ -155,9 +185,10 @@ jobs:
       - name: Post combined review
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ needs.plan.outputs.pr }}
         run: |
           python3 engine/orchestrator/post_review.py \
             --findings /tmp/adjudicated.json \
             --repo "${{ github.repository }}" \
-            --pr "${{ github.event.inputs.pr }}" \
+            --pr "$PR" \
             --api-base "${{ github.api_url }}"

@@ -14,7 +14,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "ledger"))
-from record import stamp_keys  # noqa: E402
+from record import path_suffix_match, stamp_keys  # noqa: E402
 
 FINDINGS_SCHEMA_HINT = """
 Output ONLY a single JSON object (no prose before or after, no markdown fences)
@@ -95,16 +95,13 @@ def verify_coverage(review_dir: Path, coverage: dict) -> dict:
 
     files_read = coverage.get("files_read") or []
     # files_read entries may be a shorter relative form than files_in_diff's
-    # repo-relative paths depending on how the node's cwd was set up -- match
-    # by suffix so both conventions are handled rather than guessing which one
-    # a given node/adapter used.
-    def is_covered(diff_file: str) -> bool:
-        return any(
-            diff_file == read or diff_file.endswith("/" + read) or read.endswith("/" + diff_file)
-            for read in files_read
-        )
-
-    unread = [f for f in files_in_diff if not is_covered(f)]
+    # repo-relative paths depending on how the node's cwd was set up -- match by
+    # suffix (record.path_suffix_match, shared with the ledger's implicit capture)
+    # so both conventions are handled rather than guessing which one a node used.
+    unread = [
+        f for f in files_in_diff
+        if not any(path_suffix_match(f, read) for read in files_read)
+    ]
     if not unread:
         return coverage
 

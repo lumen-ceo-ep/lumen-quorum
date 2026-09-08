@@ -25,7 +25,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from record import SIGNALS, append_records, make_record  # noqa: E402,F401
+from record import SIGNALS, append_records, make_record, path_suffix_match  # noqa: E402,F401
 
 SEVERITY_RANK = {"nit": 0, "minor": 1, "major": 2, "blocking": 3}
 
@@ -72,11 +72,10 @@ def changed_lines_by_file(diff_text: str) -> dict:
 def _file_matches(finding_file: str, diff_files) -> str:
     """Findings use workspace-relative paths ("queue/lifecycle.py"); a real git
     merge diff uses repo-relative paths ("demo-project/codebase/queue/lifecycle.py").
-    Match by suffix, same convention as the adapter's coverage check.
+    Uses record.path_suffix_match -- the same rule the adapter's coverage check runs.
     """
-    ff = (finding_file or "").strip()
     for df in diff_files:
-        if df == ff or df.endswith("/" + ff) or ff.endswith("/" + df):
+        if path_suffix_match(finding_file, df):
             return df
     return ""
 
