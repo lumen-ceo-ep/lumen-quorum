@@ -23,7 +23,11 @@ def invoke(prompt: str, *, model: str, cwd, allowed_tools: str = DEFAULT_ALLOWED
     cwd = Path(cwd)
     cwd.mkdir(parents=True, exist_ok=True)
 
-    cmd = ["claude", "-p", prompt, "--output-format", "json", "--model", model]
+    # The prompt goes on stdin, never in argv: a real diff (the engine reviewing
+    # its own PR is the case that first hit this) easily exceeds ARG_MAX and the
+    # exec fails with "Argument list too long". `claude -p` with no positional
+    # reads the prompt from stdin.
+    cmd = ["claude", "-p", "--output-format", "json", "--model", model]
     if allowed_tools:
         cmd += ["--allowedTools", allowed_tools]
     if append_system:
@@ -31,7 +35,8 @@ def invoke(prompt: str, *, model: str, cwd, allowed_tools: str = DEFAULT_ALLOWED
 
     try:
         result = subprocess.run(
-            cmd, cwd=str(cwd), capture_output=True, text=True, timeout=timeout
+            cmd, input=prompt, cwd=str(cwd),
+            capture_output=True, text=True, timeout=timeout,
         )
     except subprocess.TimeoutExpired:
         return {"ok": False, "error": f"claude timed out after {timeout}s"}

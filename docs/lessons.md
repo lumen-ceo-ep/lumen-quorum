@@ -5,6 +5,25 @@ them. Not aspirational — every entry here actually happened. Grows over time;
 append new entries rather than editing old ones away, unless a later entry
 genuinely supersedes an earlier one (say so explicitly if it does).
 
+## Self-review caught its first real bug on the PR that introduced it (2026-09-06)
+
+The moment `quorum-self-review.yml` first ran — on the PR adding self-review
+itself — the node crashed: `OSError: [Errno 7] Argument list too long: 'claude'`.
+The adapter (and, after the M4 refactor, `invoke.py`) passed the whole prompt —
+role + constitution + routed knowledge + **the full diff** — as an argv
+parameter (`claude -p "<prompt>"`). Every prior run was against a `demo-project/`
+fixture whose diff is a few lines, so it never approached `ARG_MAX`. A real
+engine PR's diff (thousands of lines) blew straight past it.
+
+**Fix**: the prompt now goes on **stdin** (`subprocess.run(..., input=prompt)`),
+never in argv. Regression-tested with a 500 KB prompt (`tests/test_invoke.py`).
+
+**Takeaway**: the synthetic M0 fixture is small by design, and "small" hid a
+scale bug that only a real, large diff exposes. Dogfooding on the engine's own
+PRs isn't just for collecting M1/M2 data — it exercises input sizes the fixture
+never will. (The Codex adapter has the same argv-prompt shape and the same latent
+bug; it's unverified anyway — fix when it's next touched.)
+
 ## Vendor headless auth can't be assumed from an interactive login working (2026-08-27 to 09-01)
 
 Tried wiring a Codex (OpenAI) adapter for a real adopting project, funded by
