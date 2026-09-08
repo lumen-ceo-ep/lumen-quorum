@@ -11,11 +11,15 @@ Returns a plain dict, never raises for a model/CLI failure:
   {"ok": False, "error": "<what went wrong>"}
 """
 import json
+import os
 import subprocess
 from pathlib import Path
 
 DEFAULT_ALLOWED_TOOLS = "Read Glob Grep"
-DEFAULT_TIMEOUT = 300
+# A real review of a large PR (the engine reviewing its own multi-file PR is the
+# case that first hit this) routinely runs past 5 minutes once the node starts
+# reading files. Default generously; override with QUORUM_NODE_TIMEOUT (seconds).
+DEFAULT_TIMEOUT = int(os.environ.get("QUORUM_NODE_TIMEOUT") or 900)
 
 
 def invoke(prompt: str, *, model: str, cwd, allowed_tools: str = DEFAULT_ALLOWED_TOOLS,

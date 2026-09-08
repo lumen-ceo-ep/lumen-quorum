@@ -43,7 +43,7 @@ jobs:
       github.event.issue.pull_request != null &&
       startsWith(github.event.comment.body, '/review')
     runs-on: [self-hosted, public]
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - name: Parse command
         id: cmd
