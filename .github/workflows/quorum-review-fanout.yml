@@ -108,9 +108,24 @@ jobs:
       pull-requests: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.plan.outputs.head_sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: npm install -g @anthropic-ai/claude-code
       - uses: actions/download-artifact@v4
         with:
           path: /tmp/nodes
+
+      - name: Rebuild review input (for the adjudicator's diff + knowledge context)
+        run: |
+          python3 engine/orchestrator/build_review_input.py \
+            --base "${{ needs.plan.outputs.base_sha }}" \
+            --head "${{ needs.plan.outputs.head_sha }}" \
+            --project demo-project --out /tmp/quorum-review
+
       - name: Stage 1 aggregate
         run: |
           ARGS=()
@@ -119,12 +134,24 @@ jobs:
             ARGS+=(--node "${role}=${d}/findings.json")
           done
           python3 engine/orchestrator/aggregate.py "${ARGS[@]}" --out /tmp/aggregate.json
+
+      - name: Stage 2 adjudicate
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: |
+          python3 engine/orchestrator/adjudicate.py \
+            --aggregate /tmp/aggregate.json \
+            --review-dir /tmp/quorum-review \
+            --model claude-sonnet-5 \
+            --out /tmp/adjudicated.json
+
       - name: Post combined review
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           python3 engine/orchestrator/post_review.py \
-            --findings /tmp/aggregate.json \
+            --findings /tmp/adjudicated.json \
             --repo "${{ github.repository }}" \
             --pr "${{ github.event.inputs.pr }}" \
             --api-base "${{ github.api_url }}"

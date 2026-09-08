@@ -151,7 +151,7 @@ def _run_one_node(review_dir: Path, model: str) -> dict:
 
 
 def run_condition(pr_dir: Path, with_knowledge: bool, model: str, keep_dir: Path,
-                  corpus_root: Path, roles=None) -> dict:
+                  corpus_root: Path, roles=None, adjudicate_model=None) -> dict:
     label = "with_knowledge" if with_knowledge else "no_knowledge"
     run_dir = keep_dir / label
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -159,12 +159,15 @@ def run_condition(pr_dir: Path, with_knowledge: bool, model: str, keep_dir: Path
     # Single-node (M0/M1): one generalist pass. Multi-role (M3): one pass per
     # role, then Stage 1 mechanical aggregation -- scored exactly the same way,
     # so the roadmap's "each role's marginal contribution" question is just a
-    # diff between two summary.json files.
+    # diff between two summary.json files. --adjudicate adds Stage 2 (M4): its
+    # stop condition (precision up vs M3, verified-recall not down) is likewise
+    # a diff between summary.json files.
     if not roles:
         review_dir = build_review_dir(run_dir, pr_dir, with_knowledge, corpus_root)
         return _run_one_node(review_dir, model)
 
     node_outputs = []
+    review_dir = None
     for role in roles:
         role_file = ROLES_DIR / f"{role}.md"
         review_dir = build_review_dir(run_dir / role, pr_dir, with_knowledge, corpus_root,
@@ -175,6 +178,12 @@ def run_condition(pr_dir: Path, with_knowledge: bool, model: str, keep_dir: Path
 
     agg = aggregate(node_outputs)
     agg["per_role"] = {r: o.get("status") for r, o in node_outputs}
+    if adjudicate_model:
+        from adjudicate import adjudicate as run_adjudicate
+        # every role's review_dir shares the same input/ + workspace/, so any
+        # one of them is a fine context for the adjudicator.
+        agg = run_adjudicate(agg, review_dir, adjudicate_model)
+        agg["per_role"] = {r: o.get("status") for r, o in node_outputs}
     return agg
 
 
@@ -203,6 +212,11 @@ def main():
              "with Stage 1 mechanical aggregation (M3). Omit for the single-node "
              "M0/M1 path.",
     )
+    ap.add_argument(
+        "--adjudicate", nargs="?", const="claude-sonnet-5", default=None, metavar="MODEL",
+        help="After Stage 1, run Stage 2 adjudication (M4). Requires --roles. "
+             "Optional value overrides the adjudicator model.",
+    )
     args = ap.parse_args()
     model = args.model
     roles = [r.strip() for r in args.roles.split(",")] if args.roles else None
@@ -211,6 +225,8 @@ def main():
         if missing:
             raise SystemExit(f"unknown role(s): {missing}; have "
                              f"{sorted(p.stem for p in ROLES_DIR.glob('*.md'))}")
+    if args.adjudicate and not roles:
+        raise SystemExit("--adjudicate requires --roles (Stage 2 runs on Stage 1 output)")
 
     if args.corpus:
         corpus_root = Path(args.corpus).resolve()
@@ -236,7 +252,8 @@ def main():
         row = {"pr": name}
 
         for with_knowledge, key in [(False, "no_knowledge"), (True, "with_knowledge")]:
-            out = run_condition(pr_dir, with_knowledge, model, keep_dir, corpus_root, roles=roles)
+            out = run_condition(pr_dir, with_knowledge, model, keep_dir, corpus_root,
+                                roles=roles, adjudicate_model=args.adjudicate)
             (keep_dir / f"{key}.json").write_text(json.dumps(out, indent=2))
 
             if out.get("status") not in ("ok", "partial"):
@@ -268,7 +285,8 @@ def main():
     print(f"with_knowledge: precision={p1:.2f} recall={r1:.2f}  (tp={totals['with_knowledge']['tp']} fn={totals['with_knowledge']['fn']} fp={totals['with_knowledge']['fp']})")
     print(f"lift: precision {p1 - p0:+.2f}, recall {r1 - r0:+.2f}")
 
-    summary = {"model": model, "roles": roles, "totals": totals, "rows": rows,
+    summary = {"model": model, "roles": roles, "adjudicate": args.adjudicate,
+               "totals": totals, "rows": rows,
                "lift": {"precision": p1 - p0, "recall": r1 - r0}}
     (results_dir / "summary.json").write_text(json.dumps(summary, indent=2))
     print(f"\nfull results: {results_dir}")

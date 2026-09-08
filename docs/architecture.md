@@ -132,7 +132,11 @@ an errored node contributes nothing and never counts as a clean vote.
 the actual diff and the actual project knowledge — not against how many nodes raised it.
 Verdict is `verified`, `contested`, or `refuted`. A refutation must cite a concrete
 counter-reference; "not sure" is `contested`, not `refuted`. Nothing is ever deleted,
-only demoted with a reason on record — every node's raw output is preserved.
+only demoted with a reason on record — every node's raw output is preserved. Implemented
+in `engine/orchestrator/adjudicate.py` (M4): the "refutation needs a counter-reference"
+rule and the "nothing deleted" rule are enforced in code, not asked for in the prompt;
+a parse or adjudicator failure defaults every cluster to `contested`, never to a silent
+`verified` or `refuted`.
 
 **Why not majority vote:** the actual risk in AI reviewers isn't adversarial disagreement
 (the byzantine-fault-tolerance framing doesn't quite fit) — it's *correlated* error.

@@ -64,7 +64,8 @@ def build_role_dir(review_dir: Path, role: str) -> Path:
     return role_dir
 
 
-def run(review_dir: Path, roles: list, model: str, adapter: Path) -> dict:
+def run(review_dir: Path, roles: list, model: str, adapter: Path,
+        adjudicate_model: str = None) -> dict:
     node_outputs = []
     for role in roles:
         role_dir = build_role_dir(review_dir, role)
@@ -81,7 +82,11 @@ def run(review_dir: Path, roles: list, model: str, adapter: Path) -> dict:
                             f"{proc.stderr[:1000]}"}
         node_outputs.append((role, obj))
 
-    return aggregate(node_outputs)
+    result = aggregate(node_outputs)
+    if adjudicate_model:
+        from adjudicate import adjudicate as run_adjudicate  # noqa: E402
+        result = run_adjudicate(result, review_dir, adjudicate_model)
+    return result
 
 
 def main():
@@ -90,14 +95,24 @@ def main():
     ap.add_argument("--roles", required=True, help="comma-separated role names")
     ap.add_argument("--model", default="claude-sonnet-5")
     ap.add_argument("--adapter", default=str(DEFAULT_ADAPTER))
+    ap.add_argument("--adjudicate", nargs="?", const="claude-sonnet-5", default=None,
+                    metavar="MODEL",
+                    help="run Stage 2 adjudication after aggregation (M4). Optional "
+                         "value overrides the adjudicator model.")
     ap.add_argument("--out", required=True)
     args = ap.parse_args()
 
     roles = [r.strip() for r in args.roles.split(",") if r.strip()]
-    result = run(Path(args.review_dir), roles, args.model, Path(args.adapter))
+    result = run(Path(args.review_dir), roles, args.model, Path(args.adapter),
+                 adjudicate_model=args.adjudicate)
     Path(args.out).write_text(json.dumps(result, indent=2, ensure_ascii=False))
-    print(f"{len(roles)} role(s) -> status={result['status']}, "
-          f"{len(result['findings'])} cluster(s) -> {args.out}")
+    if result.get("stage") == "adjudicated":
+        bc = result["bucket_counts"]
+        print(f"{len(roles)} role(s) -> {bc['verified']} verified / {bc['contested']} contested "
+              f"/ {bc['refuted']} refuted -> {args.out}")
+    else:
+        print(f"{len(roles)} role(s) -> status={result['status']}, "
+              f"{len(result['findings'])} cluster(s) -> {args.out}")
 
 
 if __name__ == "__main__":

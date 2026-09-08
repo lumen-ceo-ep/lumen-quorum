@@ -8,71 +8,29 @@ review/out/findings.json per the schema in docs/architecture.md.
 Usage: adapter.py <review_dir> [model]
 """
 import json
-import subprocess
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from common import SYSTEM_PROMPT, build_prompt, extract_json, postprocess  # noqa: E402
+from claude.invoke import invoke, usage_of  # noqa: E402
 
 
 def run(review_dir: Path, model: str) -> dict:
     prompt = build_prompt(review_dir)
     workspace = review_dir / "workspace"
-    workspace.mkdir(parents=True, exist_ok=True)
 
-    cmd = [
-        "claude",
-        "-p", prompt,
-        "--output-format", "json",
-        "--model", model,
-        "--allowedTools", "Read Glob Grep",
-        "--append-system-prompt", SYSTEM_PROMPT,
-    ]
-    result = subprocess.run(
-        cmd, cwd=str(workspace), capture_output=True, text=True, timeout=300
-    )
-    if result.returncode != 0:
-        return {
-            "status": "error",
-            "error": f"claude exited {result.returncode}: {result.stderr[:2000]}",
-            "findings": [],
-        }
+    res = invoke(prompt, model=model, cwd=workspace, append_system=SYSTEM_PROMPT)
+    if not res["ok"]:
+        return {"status": "error", "error": res["error"], "findings": []}
 
     try:
-        envelope = json.loads(result.stdout)
-    except json.JSONDecodeError:
-        return {
-            "status": "error",
-            "error": f"non-JSON envelope: {result.stdout[:2000]}",
-            "findings": [],
-        }
-
-    if envelope.get("is_error"):
-        return {
-            "status": "error",
-            "error": f"claude reported an error: {envelope.get('result', '')[:2000]}",
-            "findings": [],
-        }
-
-    final_text = envelope.get("result", "")
-    try:
-        findings_obj = extract_json(final_text)
+        findings_obj = extract_json(res["text"])
     except ValueError as e:
-        return {
-            "status": "error",
-            "error": str(e),
-            "raw": final_text[:2000],
-            "findings": [],
-        }
+        return {"status": "error", "error": str(e), "raw": res["text"][:2000], "findings": []}
 
     findings_obj = postprocess(review_dir, findings_obj)
-    findings_obj["usage"] = {
-        "total_cost_usd": envelope.get("total_cost_usd"),
-        "input_tokens": envelope.get("usage", {}).get("input_tokens"),
-        "output_tokens": envelope.get("usage", {}).get("output_tokens"),
-        "cache_read_tokens": envelope.get("usage", {}).get("cache_read_input_tokens"),
-    }
+    findings_obj["usage"] = usage_of(res["envelope"])
     return findings_obj
 
 

@@ -50,6 +50,10 @@ Pre-MVP, built bottom-up against a synthetic demo project (`demo-project/`).
 - **M3** — role fan-out (`engine/roles/`) + Stage 1 mechanical aggregation
   (`engine/orchestrator/aggregate.py`). Mechanism + CI matrix done; the
   marginal-contribution measurement needs paid runs.
+- **M4** — Stage 2 adjudication (`engine/orchestrator/adjudicate.py`):
+  verified / contested / refuted, with the "a refutation must cite a
+  counter-reference" rule enforced in code. Mechanism done; precision/recall
+  run needs paid calls.
 - **Tier 2 routing** (`routes.yaml` → the knowledge slice a diff needs) is now real.
 - **Self-review**: the engine reviews its own PRs against `engine-knowledge/` (a real
   project knowledge base), so this repo's own development is the live M1/M2 data source.

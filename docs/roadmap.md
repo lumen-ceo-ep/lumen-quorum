@@ -250,6 +250,31 @@ findings should not drop. A recall drop means the adjudicator is suppressing rea
 findings — exactly the bias problem this project exists to avoid — and is a rollback
 trigger, not a tuning problem.
 
+**Implemented (2026-09-06): the mechanism, no measurement run yet.**
+
+- **`engine/orchestrator/adjudicate.py`** — one model pass over the Stage 1 aggregate
+  that checks each cluster against the actual diff + project knowledge (never against
+  `roles_count`). Two rules enforced in *code*, not the prompt:
+  1. a `refuted` verdict with no `counter_evidence` is downgraded to `contested` — a
+     refutation without a citation is an unsupported opinion (`enforce_counter_reference`);
+  2. nothing is deleted — every cluster keeps its raw `members`, gets an `adjudication`
+     block, and is indexed into `buckets`; refuted ones move bucket, not disappear.
+  A parse failure or an adjudicator error defaults every cluster to `contested` (never
+  silently `verified`/`refuted`).
+- **`post_review.py`** — `verified` → inline comments; `contested` → a visible labelled
+  block, not blocking; `refuted` → a collapsed audit `<details>`, not posted as review
+  noise. Pre-adjudication output still posts everything inline.
+- **Wiring** — `run_roles.py --adjudicate`, `backtest.py --roles --adjudicate` (so the
+  stop-condition check is a diff between two `summary.json` files), and a Stage 2 step
+  in `quorum-review-fanout.yml`.
+- Refactor: `engine/adapters/claude/invoke.py` now holds the one shared headless-Claude
+  call (node + adjudicator); `common.py` stays vendor-free (ENG-2). 15 unit tests
+  (`tests/test_adjudicate.py`), full suite 121.
+
+**Not done:** the precision/recall run against a multi-role + adjudicated corpus (needs
+paid calls). M4 is one adjudicator on one vendor — a second adjudicator, and cross-vendor
+adjudication, are later.
+
 ## M5 — Second vendor
 
 Add a second vendor's adapter, route the automated/fan-out case to metered credentials,

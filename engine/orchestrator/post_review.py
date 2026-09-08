@@ -47,6 +47,14 @@ def format_finding(f: dict) -> str:
     conf = f.get("confidence")
     if conf is not None:
         lines.append(f"_confidence: {conf}_")
+    adj = f.get("adjudication")
+    if adj:
+        rationale = adj.get("rationale", "")
+        ce = adj.get("counter_evidence") or []
+        ce_txt = (" — counter-ref: " + ", ".join(e.get("ref", "") for e in ce)) if ce else ""
+        lines.append(f"\n_adjudicator: **{adj.get('verdict', '?')}**{ce_txt}_")
+        if rationale:
+            lines.append(f"_{rationale}_")
     # Hidden marker: lets the M2 feedback ledger's explicit-capture step map a
     # human reply/reaction on this comment back to the exact finding, without
     # fuzzy-matching prose (see engine/ledger/capture_explicit.py). Invisible in
@@ -98,8 +106,24 @@ def main():
         print("posted error notice")
         return
 
-    if not findings:
+    # Stage 2 (docs/architecture.md sec. 4): verified -> inline; contested -> a
+    # visible, separately-labelled block, not blocking, not hidden; refuted ->
+    # kept for audit, not posted as noise. Pre-adjudication output (no `stage`)
+    # posts every finding inline, as before.
+    adjudicated = obj.get("stage") == "adjudicated"
+    if adjudicated:
+        def verdict(f):
+            return (f.get("adjudication") or {}).get("verdict", "contested")
+        inline = [f for f in findings if verdict(f) == "verified"]
+        contested = [f for f in findings if verdict(f) == "contested"]
+        refuted = [f for f in findings if verdict(f) == "refuted"]
+    else:
+        inline, contested, refuted = findings, [], []
+
+    if not findings or (adjudicated and not inline and not contested):
         summary = "**Quorum review: no findings.**" + node_note
+        if adjudicated and refuted:
+            summary += f"\n\n_{len(refuted)} finding(s) raised by nodes were refuted by the adjudicator (logged, not shown)._"
         if usage.get("total_cost_usd") is not None:
             summary += f"\n\n_cost: ${usage['total_cost_usd']:.4f}_"
         api("POST", f"{base}/issues/{args.pr}/comments", args.token, {"body": summary})
@@ -113,11 +137,27 @@ def main():
             "side": "RIGHT",
             "body": format_finding(f),
         }
-        for f in findings
+        for f in inline
         if f.get("file")
     ]
 
-    summary_lines = [f"**Quorum review -- {len(findings)} finding(s)**" + node_note]
+    headline = (f"**Quorum review -- {len(inline)} verified" if adjudicated
+               else f"**Quorum review -- {len(findings)} finding(s)")
+    summary_lines = [headline + ("**" if not adjudicated else
+                    f", {len(contested)} contested, {len(refuted)} refuted**") + node_note]
+    if adjudicated and contested:
+        summary_lines.append("\n### ⚖️ Contested — a human decides\n"
+                             "_The adjudicator could not resolve these either way. Not blocking._\n")
+        for f in contested:
+            summary_lines.append(f"- `{f.get('file')}:{f.get('line')}` — {format_finding(f)}\n")
+    if adjudicated and refuted:
+        summary_lines.append("\n<details><summary>"
+                             f"{len(refuted)} refuted finding(s) (audit log, not shown as review comments)"
+                             "</summary>\n")
+        for f in refuted:
+            summary_lines.append(f"- `{f.get('file')}:{f.get('line')}` — {f.get('claim')}  \n"
+                                 f"  _{(f.get('adjudication') or {}).get('rationale', '')}_")
+        summary_lines.append("\n</details>")
     coverage = obj.get("coverage", {})
     if coverage.get("not_read_reason"):
         summary_lines.append(f"\n_coverage warning: not all diff files were read ({coverage['not_read_reason']})_")
@@ -133,7 +173,7 @@ def main():
     except RuntimeError as e:
         print(f"inline review failed ({e}); falling back to a single issue comment", file=sys.stderr)
         fallback = summary + "\n\n" + "\n\n---\n\n".join(
-            f"`{f.get('file')}:{f.get('line')}`\n{format_finding(f)}" for f in findings
+            f"`{f.get('file')}:{f.get('line')}`\n{format_finding(f)}" for f in inline
         )
         api("POST", f"{base}/issues/{args.pr}/comments", args.token, {"body": fallback})
         print("posted fallback issue comment")
