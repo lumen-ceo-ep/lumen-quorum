@@ -84,12 +84,18 @@ jobs:
           node-version: "20"
       - run: npm install -g @anthropic-ai/claude-code
       - name: Build review input
+        env:
+          ROLE: ${{ matrix.role }}
         run: |
+          # workflow_dispatch has no pull_request event payload, so PR title/body
+          # aren't wired here yet -- build_review_input treats their absence as fine.
           python3 engine/orchestrator/build_review_input.py \
             --base "${{ needs.plan.outputs.base_sha }}" \
             --head "${{ needs.plan.outputs.head_sha }}" \
-            --project demo-project --out /tmp/quorum-review
-          cp "engine/roles/${{ matrix.role }}.md" /tmp/quorum-review/input/role.md
+            --project demo-project --out /tmp/quorum-review \
+            --model claude-sonnet-5 --vendor claude --role "$ROLE" \
+            --pr-number "${{ github.event.inputs.pr }}"
+          cp "engine/roles/${ROLE}.md" /tmp/quorum-review/input/role.md
       - name: Run node
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}

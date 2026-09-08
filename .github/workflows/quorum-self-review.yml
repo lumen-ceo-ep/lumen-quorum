@@ -44,12 +44,20 @@ jobs:
         run: npm install -g @anthropic-ai/claude-code
 
       - name: Build review input
+        env:
+          # untrusted -> env, never interpolated into the script (ENG-6).
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
         run: |
           python3 engine/orchestrator/build_review_input.py \
             --base "${{ github.event.pull_request.base.sha }}" \
             --head "${{ github.event.pull_request.head.sha }}" \
             --project engine-knowledge \
-            --out /tmp/quorum-self-review
+            --out /tmp/quorum-self-review \
+            --model claude-sonnet-5 --vendor claude --role generalist \
+            --pr-number "${{ github.event.pull_request.number }}" \
+            --pr-title "$PR_TITLE" --pr-body "$PR_BODY" --pr-author "$PR_AUTHOR"
 
       - name: Run Claude node
         env:
