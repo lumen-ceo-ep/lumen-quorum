@@ -119,25 +119,12 @@ def main():
         shutil.copy(constitution, input_dir / "constitution.md")
 
     # Tier 2 (routed slice) + Tier 3 (full KB for search), per docs/architecture.md
-    # sec. 1-2. Routing reads routes.yaml and assembles only the doc sections a
-    # changed-file pattern actually matched; if there's no usable routes.yaml we
-    # fall back to copying invariants.md whole, which is what this script did
-    # before routing existed.
+    # sec. 1-2. One shared helper does the routing, the whole-file fallback, and
+    # the project-full/ copy, and returns an ENG-10-honest routed_docs list.
     proj_out = input_dir / "project"
-    routed = route.routed_refs(project_dir, files_in_diff)
-    routed_docs = route.write_slice(project_dir, routed, proj_out) if routed else []
-    if not routed_docs:
-        invariants = project_dir / "invariants.md"
-        if invariants.exists():
-            proj_out.mkdir(parents=True, exist_ok=True)
-            shutil.copy(invariants, proj_out / "invariants.md")
-
-    # Tier 3: the whole knowledge base, read-only, for a node to grep when a
-    # routed slice isn't enough ("does this pattern exist anywhere in the rules").
-    full_out = input_dir / "project-full"
-    full_out.mkdir(parents=True, exist_ok=True)
-    for doc in sorted(project_dir.glob("*.md")):
-        shutil.copy(doc, full_out / doc.name)
+    routed_docs = route.assemble_knowledge(
+        project_dir, files_in_diff, proj_out, input_dir / "project-full",
+    )
 
     profile = load_profile(project_dir)
     language, language_source = resolve_language(args.lang, profile)

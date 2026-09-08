@@ -159,6 +159,54 @@ class TestAssembleAndWrite(unittest.TestCase):
             proj = self._project(d)  # no routes.yaml written
             self.assertEqual(route.routed_refs(proj, ["queue/enqueue.py"]), [])
 
+    def test_write_slice_omits_a_ref_whose_anchor_did_not_resolve(self):
+        # regression: a sibling ref to the same file must not carry a dead ref
+        # into routed_docs (ENG-10).
+        with tempfile.TemporaryDirectory() as d:
+            proj = self._project(d)
+            written = route.write_slice(
+                proj, ["invariants.md#INV-2", "invariants.md#INV-9"], proj / "out")
+            self.assertEqual(written, ["invariants.md#INV-2"])
+
+
+class TestAssembleKnowledge(unittest.TestCase):
+    def _project(self, d, with_routes=True):
+        p = Path(d)
+        (p / "invariants.md").write_text(INVARIANTS_MD)
+        (p / "constitution.md").write_text("# Constitution\n")
+        (p / "profile.yaml").write_text("output:\n  language: en\n")
+        if with_routes:
+            (p / "routes.yaml").write_text(
+                "routes:\n  - match: 'queue/enqueue*'\n    docs: [invariants.md#INV-2]\n"
+                "always: [constitution.md, profile.yaml]\n")
+        return p
+
+    def test_routed_case_lists_resolved_refs_and_writes_slice(self):
+        with tempfile.TemporaryDirectory() as d:
+            proj = self._project(d)
+            out = Path(d) / "o"
+            docs = route.assemble_knowledge(proj, ["queue/enqueue.py"], out / "project", out / "full")
+            self.assertEqual(docs, ["invariants.md#INV-2"])
+            self.assertIn("INV-2", (out / "project" / "invariants.md").read_text())
+            self.assertTrue((out / "full" / "invariants.md").exists())
+            self.assertTrue((out / "full" / "constitution.md").exists())
+
+    def test_fallback_reports_invariants_md_not_empty_list(self):
+        with tempfile.TemporaryDirectory() as d:
+            proj = self._project(d)  # routes.yaml has no rule for docs/*.md
+            out = Path(d) / "o"
+            docs = route.assemble_knowledge(proj, ["docs/roadmap.md"], out / "project", out / "full")
+            self.assertEqual(docs, ["invariants.md"])
+            self.assertIn("INV-1", (out / "project" / "invariants.md").read_text())
+
+    def test_no_invariants_no_routes_gives_empty(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d)
+            (p / "constitution.md").write_text("# c\n")
+            out = p / "o"
+            self.assertEqual(
+                route.assemble_knowledge(p, ["x.py"], out / "project", out / "full"), [])
+
 
 if __name__ == "__main__":
     unittest.main()

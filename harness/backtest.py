@@ -70,18 +70,11 @@ def build_review_dir(run_dir: Path, pr_dir: Path, with_knowledge: bool, corpus_r
     routed_docs = []
     if with_knowledge:
         shutil.copy(corpus_root / "constitution.md", input_dir / "constitution.md")
-        project_dir = input_dir / "project"
-        # Same Tier 2 routing / whole-file fallback the live orchestrator uses,
-        # so an M0 backtest measures the routed slice, not the full KB.
-        routed = route.routed_refs(corpus_root, files_in_diff)
-        routed_docs = route.write_slice(corpus_root, routed, project_dir) if routed else []
-        if not routed_docs:
-            project_dir.mkdir(exist_ok=True)
-            shutil.copy(corpus_root / "invariants.md", project_dir / "invariants.md")
-        full_out = input_dir / "project-full"
-        full_out.mkdir(exist_ok=True)
-        for doc in sorted(Path(corpus_root).glob("*.md")):
-            shutil.copy(doc, full_out / doc.name)
+        # Same shared Tier 2/3 assembly the live orchestrator uses, so an M0
+        # backtest measures the routed slice (and the same routed_docs) it would.
+        routed_docs = route.assemble_knowledge(
+            corpus_root, files_in_diff, input_dir / "project", input_dir / "project-full",
+        )
 
     language, _source = resolve_language(None, load_profile(corpus_root))
     (input_dir / "manifest.json").write_text(json.dumps({

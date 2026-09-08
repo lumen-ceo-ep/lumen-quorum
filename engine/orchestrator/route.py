@@ -12,8 +12,8 @@ Until now `build_review_input.py` copied the entire `invariants.md` into Tier 2 
 each changed file against its glob patterns, and assemble only the cited sections
 (anchor-addressable, e.g. `invariants.md#INV-2`) into the routed slice.
 
-Pure except for `load_routes` / `write_routed_slice`; the matching and the
-markdown section extraction are unit-tested with no filesystem.
+Pure except for `load_routes` / `write_slice` / `assemble_knowledge`; the
+matching and the markdown section extraction are unit-tested with no filesystem.
 """
 import fnmatch
 import re
@@ -158,20 +158,46 @@ def routed_refs(project_dir, changed_files) -> list:
 
 def write_slice(project_dir, refs, out_dir) -> list:
     """Writes the assembled sections for `refs` into `out_dir`, one file per
-    target doc. Returns the refs actually written (a ref whose file/anchor
-    resolved to nothing is skipped).
+    target doc. Returns exactly the refs whose *own* content resolved -- a ref
+    whose file is missing or whose #anchor matched nothing is not listed, even
+    when a sibling ref to the same file did resolve (ENG-10: routed_docs must
+    reflect what the node actually received).
     """
     assembled = assemble_slices(project_dir, refs)
     if not assembled:
         return []
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    written = []
     for filename, content in assembled.items():
         (out_dir / Path(filename).name).write_text(content)
-    # report which refs contributed, in input order
-    contributing = {r.split("#", 1)[0] for r in refs} & set(assembled)
-    for r in refs:
-        if r.split("#", 1)[0] in contributing:
-            written.append(r)
+    return [r for r in refs if slice_ref(project_dir, r)[1]]
+
+
+def assemble_knowledge(project_dir, changed_files, project_out, full_out) -> list:
+    """The full Tier 2 + Tier 3 assembly, in one place (was copy-pasted between
+    build_review_input.py and the backtest harness). Writes the routed slice into
+    `project_out` and the whole knowledge base into `full_out`, and returns the
+    doc refs the manifest should record for `routed_docs` -- honest for ENG-10:
+
+      - routed refs that actually resolved, when a route matched; else
+      - ["invariants.md"] when no route matched and the whole file was copied as
+        the fallback (NOT [], which would imply the node got no routed knowledge); else
+      - [] when the project has neither routes nor an invariants.md.
+    """
+    project_dir = Path(project_dir)
+    project_out = Path(project_out)
+
+    refs = routed_refs(project_dir, changed_files)
+    written = write_slice(project_dir, refs, project_out) if refs else []
+    if not written:
+        invariants = project_dir / "invariants.md"
+        if invariants.exists():
+            project_out.mkdir(parents=True, exist_ok=True)
+            (project_out / "invariants.md").write_text(invariants.read_text())
+            written = ["invariants.md"]
+
+    full_out = Path(full_out)
+    full_out.mkdir(parents=True, exist_ok=True)
+    for doc in sorted(project_dir.glob("*.md")):
+        (full_out / doc.name).write_text(doc.read_text())
     return written
