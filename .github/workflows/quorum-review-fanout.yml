@@ -121,9 +121,9 @@ jobs:
           python3 engine/orchestrator/build_review_input.py \
             --base "$BASE" --head "$HEAD" \
             --project demo-project --out /tmp/quorum-review \
-            --model claude-sonnet-5 --vendor claude --role "$ROLE" \
+            --model claude-sonnet-5 --vendor claude \
+            --role "$ROLE" --role-file "engine/roles/${ROLE}.md" \
             --pr-number "$PR"
-          cp "engine/roles/${ROLE}.md" /tmp/quorum-review/input/role.md
       - name: Run node
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}

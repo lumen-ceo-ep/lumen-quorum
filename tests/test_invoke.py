@@ -90,5 +90,50 @@ class TestInvokePromptChannel(unittest.TestCase):
         self.assertEqual(out["text"], "the findings")
 
 
+class TestAdapterJsonRetry(unittest.TestCase):
+    """adapter.run() retries once when the model ends with prose instead of JSON."""
+
+    def setUp(self):
+        spec = importlib.util.spec_from_file_location(
+            "claude_adapter", REPO_ROOT / "engine" / "adapters" / "claude" / "adapter.py")
+        self.ad = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.ad)
+        self.tmp = Path(tempfile.mkdtemp())
+        inp = self.tmp / "input"
+        inp.mkdir()
+        (inp / "role.md").write_text("r")
+        (inp / "diff.patch").write_text("d")
+        (inp / "manifest.json").write_text('{"language":"en"}')
+
+    def _fake_invoke(self, texts):
+        seen = []
+
+        def fake(prompt, **kw):
+            seen.append(prompt)
+            return {"ok": True, "text": texts[min(len(seen) - 1, len(texts) - 1)],
+                    "envelope": {"usage": {}}}
+        self.ad.invoke = fake
+        return seen
+
+    def test_prose_then_json_recovers(self):
+        seen = self._fake_invoke(["here are the findings", '{"status":"ok","findings":[]}'])
+        out = self.ad.run(self.tmp, "m")
+        self.assertEqual(out["status"], "ok")
+        self.assertEqual(len(seen), 2)
+        self.assertIn(self.ad._RETRY_NUDGE.strip()[:15], seen[1])
+
+    def test_prose_twice_is_clean_error_after_two_attempts(self):
+        seen = self._fake_invoke(["still just prose"])
+        out = self.ad.run(self.tmp, "m")
+        self.assertEqual(out["status"], "error")
+        self.assertEqual(len(seen), 2)
+        self.assertIn("2 attempts", out["error"])
+
+    def test_first_attempt_json_does_not_retry(self):
+        seen = self._fake_invoke(['{"status":"ok","findings":[]}'])
+        self.ad.run(self.tmp, "m")
+        self.assertEqual(len(seen), 1)
+
+
 if __name__ == "__main__":
     unittest.main()

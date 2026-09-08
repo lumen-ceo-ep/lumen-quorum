@@ -4,8 +4,8 @@ PR against a given project directory, ready to hand to a node adapter.
 
 Usage:
   build_review_input.py --base <sha> --head <sha> --project <dir> --out <dir>
-      [--lang <code>] [--role <name>] [--vendor <name>] [--model <id>]
-      [--pr-number N] [--pr-title ...] [--pr-body ...] [--pr-author ...]
+      [--lang <code>] [--role <name>] [--role-file <path>] [--vendor <name>]
+      [--model <id>] [--pr-number N] [--pr-title ...] [--pr-body ...] [--pr-author ...]
 """
 import argparse
 import hashlib
@@ -71,9 +71,13 @@ def main():
     ap.add_argument("--head", required=True)
     ap.add_argument("--project", required=True, help="path to a project dir with constitution.md/invariants.md/profile.yaml")
     ap.add_argument("--out", required=True)
-    ap.add_argument("--role", default="generalist",
-                    help="node role name, recorded in the manifest (the actual role.md "
-                         "may be swapped in by the workflow for a fan-out node)")
+    ap.add_argument("--role", default=None,
+                    help="node role name for the manifest; defaults to the --role-file "
+                         "stem, or 'generalist'")
+    ap.add_argument("--role-file", default=None,
+                    help="path to the role.md to use (e.g. engine/roles/correctness.md). "
+                         "Copied into input/role.md and folded into inputs_sha, so a "
+                         "fan-out node's audit hash matches the role it actually ran.")
     ap.add_argument("--vendor", default="claude", help="node vendor, recorded in the manifest")
     ap.add_argument("--model", default=None, help="model id, recorded in the manifest")
     # PR context: untrusted data. Passed as flags (workflow reads them from env,
@@ -111,7 +115,9 @@ def main():
         cwd=str(PROJECT_ROOT), capture_output=True, text=True, check=True,
     ).stdout.splitlines()
 
-    shutil.copy(ROLE_FILE, input_dir / "role.md")
+    role_src = Path(args.role_file) if args.role_file else ROLE_FILE
+    shutil.copy(role_src, input_dir / "role.md")
+    role_name = args.role or (Path(args.role_file).stem if args.role_file else "generalist")
 
     project_dir = Path(args.project)
     constitution = project_dir / "constitution.md"
@@ -154,7 +160,7 @@ def main():
     if (input_dir / "constitution.md").exists():
         constitution_text = (input_dir / "constitution.md").read_text()
     inputs_sha = hashlib.sha256(
-        (ROLE_FILE.read_text() + constitution_text + routed_blob + diff).encode()
+        ((input_dir / "role.md").read_text() + constitution_text + routed_blob + diff).encode()
     ).hexdigest()[:16]
 
     budget_tokens = (route.load_routes(project_dir) or {}).get("budget_tokens")
@@ -172,7 +178,7 @@ def main():
         "budget_tokens": budget_tokens,
         "language": language,
         "language_source": language_source,
-        "node": {"role": args.role, "vendor": args.vendor, "model": args.model},
+        "node": {"role": role_name, "vendor": args.vendor, "model": args.model},
         "pr_number": args.pr_number,
     }
     (input_dir / "manifest.json").write_text(json.dumps(manifest, indent=2, ensure_ascii=False))
