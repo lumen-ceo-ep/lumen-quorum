@@ -120,10 +120,11 @@ def main():
     else:
         inline, contested, refuted = findings, [], []
 
-    if not findings or (adjudicated and not inline and not contested):
+    # Truly nothing to report only when there are also no refuted findings --
+    # a run where the adjudicator refuted everything still has to render the
+    # audit block below (ENG-3: nothing is dropped without its reason on record).
+    if not findings or (adjudicated and not inline and not contested and not refuted):
         summary = "**Quorum review: no findings.**" + node_note
-        if adjudicated and refuted:
-            summary += f"\n\n_{len(refuted)} finding(s) raised by nodes were refuted by the adjudicator (logged, not shown)._"
         if usage.get("total_cost_usd") is not None:
             summary += f"\n\n_cost: ${usage['total_cost_usd']:.4f}_"
         api("POST", f"{base}/issues/{args.pr}/comments", args.token, {"body": summary})
@@ -164,6 +165,14 @@ def main():
     if usage.get("total_cost_usd") is not None:
         summary_lines.append(f"\n_cost: ${usage['total_cost_usd']:.4f}_")
     summary = "\n".join(summary_lines)
+
+    if not comments:
+        # only refuted (and/or contested) findings -- nothing to anchor inline.
+        # Post the summary (which carries the contested block + the refuted audit
+        # <details>) as one issue comment.
+        api("POST", f"{base}/issues/{args.pr}/comments", args.token, {"body": summary})
+        print(f"posted summary-only review ({len(refuted)} refuted, {len(contested)} contested)")
+        return
 
     try:
         api("POST", f"{base}/pulls/{args.pr}/reviews", args.token, {

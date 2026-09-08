@@ -3,7 +3,6 @@
 network, no git -- run with: python3 -m unittest tests.test_ledger -v
 """
 import contextlib
-import importlib.util
 import io
 import json
 import sys
@@ -16,12 +15,7 @@ LEDGER_DIR = REPO_ROOT / "engine" / "ledger"
 sys.path.insert(0, str(LEDGER_DIR))
 
 
-def _load(name, rel):
-    spec = importlib.util.spec_from_file_location(name, REPO_ROOT / rel)
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[name] = mod
-    spec.loader.exec_module(mod)
-    return mod
+from _util import load_module as _load
 
 
 record = _load("record", "engine/ledger/record.py")

@@ -2,7 +2,6 @@
 """Unit tests for the language-selection feature. Pure logic, no API calls --
 run with: python3 -m unittest tests/test_language.py -v
 """
-import importlib.util
 import json
 import sys
 import tempfile
@@ -12,12 +11,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
-def _load(module_name: str, rel_path: str):
-    spec = importlib.util.spec_from_file_location(module_name, REPO_ROOT / rel_path)
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[module_name] = module
-    spec.loader.exec_module(module)
-    return module
+from _util import load_module as _load
 
 
 build_review_input = _load("build_review_input", "engine/orchestrator/build_review_input.py")

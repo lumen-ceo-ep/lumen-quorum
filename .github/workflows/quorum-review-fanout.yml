@@ -192,3 +192,17 @@ jobs:
             --repo "${{ github.repository }}" \
             --pr "$PR" \
             --api-base "${{ github.api_url }}"
+
+      - name: Upload aggregated + adjudicated output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          # keeps the full Stage 1 + Stage 2 record -- including every refuted
+          # finding and the adjudicator's rationale -- recoverable after the run
+          # (ENG-3). post_review.py only renders a summary of the refuted set.
+          name: quorum-fanout-${{ needs.plan.outputs.pr }}-${{ github.run_id }}
+          path: |
+            /tmp/aggregate.json
+            /tmp/adjudicated.json
+          if-no-files-found: warn
+          retention-days: 30

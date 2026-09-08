@@ -3,7 +3,6 @@
 Pure logic only -- the model call is not exercised here. Run with:
 python3 -m unittest tests.test_adjudicate -v
 """
-import importlib.util
 import json
 import sys
 import tempfile
@@ -15,12 +14,7 @@ sys.path.insert(0, str(REPO_ROOT / "engine" / "orchestrator"))
 sys.path.insert(0, str(REPO_ROOT / "engine" / "adapters"))
 
 
-def _load(name, rel):
-    spec = importlib.util.spec_from_file_location(name, REPO_ROOT / rel)
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[name] = mod
-    spec.loader.exec_module(mod)
-    return mod
+from _util import load_module as _load
 
 
 adj = _load("adjudicate", "engine/orchestrator/adjudicate.py")

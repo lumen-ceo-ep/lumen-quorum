@@ -2,7 +2,6 @@
 """Unit tests for Tier 2 routing (engine/orchestrator/route.py). Pure logic --
 run with: python3 -m unittest tests.test_routing -v
 """
-import importlib.util
 import sys
 import tempfile
 import unittest
@@ -12,12 +11,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / "engine" / "orchestrator"))
 
 
-def _load(name, rel):
-    spec = importlib.util.spec_from_file_location(name, REPO_ROOT / rel)
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[name] = mod
-    spec.loader.exec_module(mod)
-    return mod
+from _util import load_module as _load
 
 
 route = _load("route", "engine/orchestrator/route.py")
