@@ -116,6 +116,19 @@ in what M1 already claimed:**
   orchestrator and the backtest harness identically. 13 unit tests (`tests/
   test_routing.py`). An M0 regression run is still pending (needs paid model calls).
 
+**Self-review: the engine is its own first adopter (2026-09-06).** M1's and M2's stop
+conditions both need *a repo with real, ongoing PR traffic* — and this repo has exactly
+one such repo's worth: its own development. `engine-knowledge/` is a real project
+knowledge base (`constitution.md` + `ENG-1..ENG-10` invariants + `routes.yaml`) for
+changes to `engine/` / `harness/` / workflows; `quorum-self-review.yml` runs the M1 node
+on every such PR with `--project engine-knowledge`, and `quorum-ledger.yml` now captures
+outcomes for it too (into `engine-knowledge/ledger/`, real data, not the synthetic
+`demo-project/ledger/` fixture). So from here on, every engine PR — including the M2/M3/M4
+ones — is an M1 finding and an M2 ledger row. `demo-project/` stays the isolated
+knowledge-free M0 fixture (`ENG-9`). Building this also caught a real bug in `route.py`
+(`lstrip("./")` ate the leading dot of `.github/...`, so no workflow file ever routed) —
+regression-tested.
+
 **Still open from the hardening pass, not yet closed out:**
 
 - `quorum-review-command.yml` (the `/review lang=<x>` comment trigger) has only been

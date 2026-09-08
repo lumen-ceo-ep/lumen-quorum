@@ -44,7 +44,10 @@ def _basename_variants(changed_file: str):
     ("demo-project/codebase/queue/lifecycle.py"). Yield the full path and every
     suffix so a pattern can match at whatever depth it was written for.
     """
-    parts = changed_file.strip().lstrip("./").split("/")
+    cf = changed_file.strip()
+    if cf.startswith("./"):
+        cf = cf[2:]
+    parts = cf.split("/")
     for i in range(len(parts)):
         yield "/".join(parts[i:])
 

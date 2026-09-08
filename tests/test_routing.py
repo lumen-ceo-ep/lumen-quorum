@@ -63,6 +63,16 @@ class TestMatchDocs(unittest.TestCase):
         self.assertNotIn("invariants.md#INV-1", got)
         self.assertNotIn("invariants.md#INV-2", got)
 
+    def test_dotdir_prefix_is_preserved(self):
+        # regression: lstrip("./") used to eat the leading dot of ".github",
+        # so ".github/workflows/x.yml" never matched a ".github/..." pattern.
+        routes = {"routes": [{"match": ".github/workflows/*.yml", "docs": ["a.md#x"]}]}
+        self.assertIn("a.md#x", route.match_docs([".github/workflows/ci.yml"], routes))
+
+    def test_leading_dotslash_still_stripped(self):
+        routes = {"routes": [{"match": "queue/enqueue*", "docs": ["invariants.md#INV-2"]}]}
+        self.assertIn("invariants.md#INV-2", route.match_docs(["./queue/enqueue.py"], routes))
+
     def test_multiple_changed_files_union(self):
         got = route.match_docs(["queue/lifecycle.py", "queue/retry.py"], ROUTES)
         self.assertIn("invariants.md#INV-1", got)

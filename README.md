@@ -51,6 +51,8 @@ Pre-MVP, built bottom-up against a synthetic demo project (`demo-project/`).
   (`engine/orchestrator/aggregate.py`). Mechanism + CI matrix done; the
   marginal-contribution measurement needs paid runs.
 - **Tier 2 routing** (`routes.yaml` → the knowledge slice a diff needs) is now real.
+- **Self-review**: the engine reviews its own PRs against `engine-knowledge/` (a real
+  project knowledge base), so this repo's own development is the live M1/M2 data source.
 
 Next: the measurement runs above, then M4 adjudication, then a second vendor. See
 `docs/roadmap.md`.

@@ -1,0 +1,76 @@
+name: Quorum Self-Review
+
+# Quorum reviewing its own changes, using engine-knowledge/ as the project.
+# This makes the repo its own first real adopter: every PR touching the engine
+# is a live M1 finding + M2 ledger data point, not a synthetic one (docs/roadmap.md).
+#
+# Same single-job M1 shape as quorum-review.yml (the demo-project reviewer) and
+# the same known simplification: one job holds both node read scope and PR write
+# scope until the M3 matrix split. Runs alongside quorum-review.yml, not instead
+# of it — different path filters, so a PR touching both areas gets both reviews.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - "engine/**"
+      - "harness/**"
+      - "engine-knowledge/**"
+      - ".github/workflows/**"
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: quorum-self-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Claude Code CLI
+        run: npm install -g @anthropic-ai/claude-code
+
+      - name: Build review input
+        run: |
+          python3 engine/orchestrator/build_review_input.py \
+            --base "${{ github.event.pull_request.base.sha }}" \
+            --head "${{ github.event.pull_request.head.sha }}" \
+            --project engine-knowledge \
+            --out /tmp/quorum-self-review
+
+      - name: Run Claude node
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: python3 engine/adapters/claude/adapter.py /tmp/quorum-self-review claude-sonnet-5
+
+      - name: Post review
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 engine/orchestrator/post_review.py \
+            --findings /tmp/quorum-self-review/out/findings.json \
+            --repo "${{ github.repository }}" \
+            --pr "${{ github.event.pull_request.number }}" \
+            --api-base "${{ github.api_url }}"
+
+      - name: Upload run manifest
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: quorum-self-run-${{ github.event.pull_request.number }}-${{ github.run_id }}
+          path: /tmp/quorum-self-review
+          retention-days: 30

@@ -79,7 +79,9 @@ def file_pattern(path: str) -> str:
     Keeps the directory (where a rule tends to apply) and drops the specific
     filename (which varies PR to PR). A single-segment path keeps its own name.
     """
-    path = (path or "").strip().lstrip("./")
+    path = (path or "").strip()
+    if path.startswith("./"):
+        path = path[2:]
     if "/" in path:
         return path.rsplit("/", 1)[0] + "/*"
     return path or "*"

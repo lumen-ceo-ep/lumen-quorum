@@ -23,6 +23,12 @@ projects/<name>/   <- lives wherever the adopting team wants (their own repo/sto
   profile.yaml     <- output conventions (language, anchor style, severity vocabulary)
 ```
 
+Two project knowledge bases live in this repo, and they are still *data*, not engine:
+`demo-project/` (a synthetic, deliberately knowledge-free M0 fixture) and
+`engine-knowledge/` (real — the rules for changes to `engine/` itself, so Quorum reviews
+its own PRs and the repo's own development is a live M1/M2 data source). Neither is
+special to the engine; both are loaded exactly like a third-party adopter's would be.
+
 ### Output language
 
 A project sets its default via `profile.yaml`:
