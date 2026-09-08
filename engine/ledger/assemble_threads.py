@@ -100,8 +100,13 @@ def main():
     ap.add_argument("--pr", required=True, type=int)
     ap.add_argument("--out", required=True)
     ap.add_argument("--api-base", default="https://api.github.com")
-    ap.add_argument("--token", default=os.environ.get("GITHUB_TOKEN"))
+    ap.add_argument("--token", default=os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN"))
     args = ap.parse_args()
+
+    if not args.token:
+        print("no GITHUB_TOKEN / GH_TOKEN available; skipping explicit capture", file=sys.stderr)
+        Path(args.out).write_text("[]")
+        return
 
     findings_obj = json.loads(Path(args.findings).read_text())
     threads = assemble(findings_obj, args.repo, args.pr, args.token, args.api_base)

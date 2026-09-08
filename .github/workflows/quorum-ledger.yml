@@ -108,7 +108,12 @@ jobs:
             --ledger "${{ steps.detect.outputs.ledger }}"
 
       - name: Capture explicit signal (replies / reactions)
+        # best-effort: a hiccup reading PR comments must not lose the implicit
+        # ledger record captured above.
         if: steps.detect.outputs.found == 'true'
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           python3 engine/ledger/assemble_threads.py \
             --findings "${{ steps.detect.outputs.findings }}" \
