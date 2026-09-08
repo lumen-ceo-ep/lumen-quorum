@@ -23,6 +23,12 @@ projects/<name>/   <- lives wherever the adopting team wants (their own repo/sto
   profile.yaml     <- output conventions (language, anchor style, severity vocabulary)
 ```
 
+Two project knowledge bases live in this repo, and they are still *data*, not engine:
+`demo-project/` (a synthetic, deliberately knowledge-free M0 fixture) and
+`engine-knowledge/` (real — the rules for changes to `engine/` itself, so Quorum reviews
+its own PRs and the repo's own development is a live M1/M2 data source). Neither is
+special to the engine; both are loaded exactly like a third-party adopter's would be.
+
 ### Output language
 
 A project sets its default via `profile.yaml`:
@@ -117,14 +123,20 @@ a GitLab port later is an adapter concern, not a rewrite.
 ## 3. Convergence: two stages, not a vote
 
 **Stage 1 — mechanical clustering (no model call).** Findings from every node are
-grouped by (file, hunk, category). Pure deduplication, fully deterministic and
-auditable.
+grouped by (file, category, line-proximity). Pure deduplication, fully deterministic
+and auditable. Implemented in `engine/orchestrator/aggregate.py` (M3): a cluster
+carries `raised_by` / `roles_count` and keeps every raw finding under `members`;
+an errored node contributes nothing and never counts as a clean vote.
 
 **Stage 2 — adjudication, not voting.** One designated pass reviews each group against
 the actual diff and the actual project knowledge — not against how many nodes raised it.
 Verdict is `verified`, `contested`, or `refuted`. A refutation must cite a concrete
 counter-reference; "not sure" is `contested`, not `refuted`. Nothing is ever deleted,
-only demoted with a reason on record — every node's raw output is preserved.
+only demoted with a reason on record — every node's raw output is preserved. Implemented
+in `engine/orchestrator/adjudicate.py` (M4): the "refutation needs a counter-reference"
+rule and the "nothing deleted" rule are enforced in code, not asked for in the prompt;
+a parse or adjudicator failure defaults every cluster to `contested`, never to a silent
+`verified` or `refuted`.
 
 **Why not majority vote:** the actual risk in AI reviewers isn't adversarial disagreement
 (the byzantine-fault-tolerance framing doesn't quite fit) — it's *correlated* error.
@@ -199,3 +211,63 @@ it's using for their own interactive coding time.
   system said at review time. Everything before that is a proxy (does a human agree with
   a finding right now), and proxies are biased toward "confirms what a human already
   suspected," not toward the harder, more valuable case.
+
+## 8. Untrusted input & prompt-injection surface
+
+The diff, the PR title/body, and any file a node reads are **data written by whoever
+opened the PR** — never instructions. Two independent layers enforce this:
+
+- **Structural.** A node never holds PR write access. Posting uses a repo-scoped
+  credential in a separate job (sec. 5). Even a node fully talked into "approve this
+  PR" has no channel to act on it — the worst case is a bad finding in a JSON file a
+  human still reads.
+- **In-band.** The node's system prompt states the diff and file contents are untrusted
+  and directions found inside them are never followed (`SYSTEM_PROMPT` in
+  `engine/adapters/common.py`). `pr-context.json` is passed as clearly-delimited data.
+
+### 8.1 Script injection in workflows
+
+A PR comment body (and anything derived from it) is attacker-controlled text. It must
+never be interpolated directly via `${{ }}` into a `run:` shell script — that pastes the
+raw string into the script *before* the shell parses it, so `$(...)` or backticks in a
+comment execute on the runner. Every such value is passed through `env:` and referenced
+as a normal shell variable instead, which the shell treats as data. GitHub-controlled
+context (`github.repository`, `github.api_url`, `github.event.*.number`) is not attacker
+text and is safe to interpolate. See the header comment in
+`.github/workflows/quorum-review-command.yml`, which does exactly this for `/review`
+comment parsing.
+
+## 9. Feedback ledger (M2)
+
+The engine posts findings; humans decide. **What humans decide is the training signal**
+— not for model weights (the project never touches those), but for the project's own
+knowledge base. The ledger is how that signal is captured without asking anyone to keep
+score by hand.
+
+- **One append-only JSONL record per finding-per-signal**, owned by the project (it
+  persists across runs, like `invariants.md` — sec. 1), not by the engine. The engine
+  ships the code (`engine/ledger/`); the file lives with the project's knowledge.
+- **Two signal sources.** *Explicit*: a reply or reaction on a posted inline comment →
+  `accepted` / `corrected`. *Implicit*: a `blocking`/`major` finding whose cited line
+  merged unchanged, with no reply → `ignored`. The implicit path matters most —
+  merging past a finding is the common case and nobody clicks anything to do it.
+- **Two derived keys.** `finding_key` pins one posted finding (embedded in the comment
+  as an HTML marker so an explicit reply maps back with no prose matching).
+  `cluster_key` is coarse — `(file-pattern, category, cited rule)` — and groups findings
+  *across PRs*.
+- **Clustering is by distinct PR, never by record**, with a floor (default 3 distinct
+  PRs). One reviewer disputing one finding once is noise; the same finding-shape
+  disputed or ignored across several independent PRs is a knowledge-base problem.
+- **Promotion is a proposal, never an edit.** A qualifying cluster renders a
+  human-readable recommendation to change `invariants.md` / `constitution.md`; a person
+  opens that PR. No signal, and no cluster, ever edits the knowledge base on its own.
+
+Open tensions specific to the ledger:
+
+- The implicit `ignored` signal can't tell "a human considered this and disagreed" from
+  "nobody looked." A `window` around the cited line reduces false "ignored" reads from
+  off-by-a-few citations, but the ambiguity is real — `ignored` is the weakest verdict
+  and is treated as such (it proposes *reviewing* a rule, not removing it).
+- The explicit classifier is keyword-based and coarse. It resolves ambiguity toward
+  `corrected` on purpose (over-counting disputes is the safer error for M1's
+  dispute-rate gate), which means the dispute rate it reports is an upper bound.

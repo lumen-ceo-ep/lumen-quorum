@@ -37,9 +37,28 @@ and disagreement that stays visible instead of getting averaged away.
 
 ## Status
 
-Pre-MVP. Currently validating whether feeding a project's own knowledge into a single
-review pass produces a measurable accuracy improvement over an unaided reviewer, against
-a synthetic demo project (`demo-project/`) before anything else gets built. See
+Pre-MVP, built bottom-up against a synthetic demo project (`demo-project/`).
+
+- **M0** — project knowledge measurably beats an unaided reviewer (recall +0.75,
+  precision held). Done.
+- **M1** — single node live as a GitHub Actions workflow, real inline PR comments.
+  Mechanism proven; its own 2-week quality bar needs a repo with real PR traffic.
+- **M2** — feedback ledger (`engine/ledger/`): captures what humans do with each posted
+  finding (explicit replies + implicit "merged unchanged"), clusters repeated overrides
+  across PRs into *proposed* knowledge-base changes. Mechanism + synthetic worked
+  example done; real data needs traffic.
+- **M3** — role fan-out (`engine/roles/`) + Stage 1 mechanical aggregation
+  (`engine/orchestrator/aggregate.py`). Mechanism + CI matrix done; the
+  marginal-contribution measurement needs paid runs.
+- **M4** — Stage 2 adjudication (`engine/orchestrator/adjudicate.py`):
+  verified / contested / refuted, with the "a refutation must cite a
+  counter-reference" rule enforced in code. Mechanism done; precision/recall
+  run needs paid calls.
+- **Tier 2 routing** (`routes.yaml` → the knowledge slice a diff needs) is now real.
+- **Self-review**: the engine reviews its own PRs against `engine-knowledge/` (a real
+  project knowledge base), so this repo's own development is the live M1/M2 data source.
+
+Next: the measurement runs above, then M4 adjudication, then a second vendor. See
 `docs/roadmap.md`.
 
 ## License

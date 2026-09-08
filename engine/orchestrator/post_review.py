@@ -33,6 +33,10 @@ def api(method: str, url: str, token: str, body: dict = None) -> dict:
 def format_finding(f: dict) -> str:
     emoji = SEVERITY_EMOJI.get(f.get("severity", "minor"), "")
     lines = [f"{emoji} **{f.get('severity', '?').upper()} / {f.get('category', '?')}** -- {f.get('claim', '')}"]
+    raised_by = f.get("raised_by")
+    if raised_by:
+        lines.append(f"\n_raised independently by {f.get('roles_count', len(raised_by))} "
+                     f"role(s): {', '.join(raised_by)}_")
     scenario = f.get("failure_scenario")
     if scenario:
         lines.append(f"\n{scenario}")
@@ -43,6 +47,21 @@ def format_finding(f: dict) -> str:
     conf = f.get("confidence")
     if conf is not None:
         lines.append(f"_confidence: {conf}_")
+    adj = f.get("adjudication")
+    if adj:
+        rationale = adj.get("rationale", "")
+        ce = adj.get("counter_evidence") or []
+        ce_txt = (" — counter-ref: " + ", ".join(e.get("ref", "") for e in ce)) if ce else ""
+        lines.append(f"\n_adjudicator: **{adj.get('verdict', '?')}**{ce_txt}_")
+        if rationale:
+            lines.append(f"_{rationale}_")
+    # Hidden marker: lets the M2 feedback ledger's explicit-capture step map a
+    # human reply/reaction on this comment back to the exact finding, without
+    # fuzzy-matching prose (see engine/ledger/capture_explicit.py). Invisible in
+    # rendered Markdown; harmless if the ledger is never run.
+    key = f.get("finding_key")
+    if key:
+        lines.append(f"\n<!-- quorum:finding_key={key} -->")
     return "\n".join(lines)
 
 
@@ -66,7 +85,19 @@ def main():
 
     base = f"{args.api_base}/repos/{args.repo}"
 
-    if status != "ok":
+    # "partial" comes from aggregate.py: some nodes ran, at least one errored.
+    # Post the findings that did come back, but say so -- a silently-dead node
+    # must never look like a clean vote (docs/architecture.md sec. 2, 3).
+    node_note = ""
+    if obj.get("nodes"):
+        failed = [n for n in obj["nodes"] if n.get("status") != "ok"]
+        if failed:
+            node_note = (
+                "\n\n_node warning: " + ", ".join(f"`{n['role']}` ({n['status']})" for n in failed)
+                + " did not complete; findings below are from the remaining node(s) only._"
+            )
+
+    if status == "error" or (status != "ok" and status != "partial"):
         body = (
             f"**Quorum review did not complete.** status={status}\n\n"
             f"```\n{obj.get('error', 'no error detail')}\n```"
@@ -75,8 +106,25 @@ def main():
         print("posted error notice")
         return
 
-    if not findings:
-        summary = "**Quorum review: no findings.**"
+    # Stage 2 (docs/architecture.md sec. 4): verified -> inline; contested -> a
+    # visible, separately-labelled block, not blocking, not hidden; refuted ->
+    # kept for audit, not posted as noise. Pre-adjudication output (no `stage`)
+    # posts every finding inline, as before.
+    adjudicated = obj.get("stage") == "adjudicated"
+    if adjudicated:
+        def verdict(f):
+            return (f.get("adjudication") or {}).get("verdict", "contested")
+        inline = [f for f in findings if verdict(f) == "verified"]
+        contested = [f for f in findings if verdict(f) == "contested"]
+        refuted = [f for f in findings if verdict(f) == "refuted"]
+    else:
+        inline, contested, refuted = findings, [], []
+
+    # Truly nothing to report only when there are also no refuted findings --
+    # a run where the adjudicator refuted everything still has to render the
+    # audit block below (ENG-3: nothing is dropped without its reason on record).
+    if not findings or (adjudicated and not inline and not contested and not refuted):
+        summary = "**Quorum review: no findings.**" + node_note
         if usage.get("total_cost_usd") is not None:
             summary += f"\n\n_cost: ${usage['total_cost_usd']:.4f}_"
         api("POST", f"{base}/issues/{args.pr}/comments", args.token, {"body": summary})
@@ -90,17 +138,41 @@ def main():
             "side": "RIGHT",
             "body": format_finding(f),
         }
-        for f in findings
+        for f in inline
         if f.get("file")
     ]
 
-    summary_lines = [f"**Quorum review -- {len(findings)} finding(s)**"]
+    headline = (f"**Quorum review -- {len(inline)} verified" if adjudicated
+               else f"**Quorum review -- {len(findings)} finding(s)")
+    summary_lines = [headline + ("**" if not adjudicated else
+                    f", {len(contested)} contested, {len(refuted)} refuted**") + node_note]
+    if adjudicated and contested:
+        summary_lines.append("\n### ⚖️ Contested — a human decides\n"
+                             "_The adjudicator could not resolve these either way. Not blocking._\n")
+        for f in contested:
+            summary_lines.append(f"- `{f.get('file')}:{f.get('line')}` — {format_finding(f)}\n")
+    if adjudicated and refuted:
+        summary_lines.append("\n<details><summary>"
+                             f"{len(refuted)} refuted finding(s) (audit log, not shown as review comments)"
+                             "</summary>\n")
+        for f in refuted:
+            summary_lines.append(f"- `{f.get('file')}:{f.get('line')}` — {f.get('claim')}  \n"
+                                 f"  _{(f.get('adjudication') or {}).get('rationale', '')}_")
+        summary_lines.append("\n</details>")
     coverage = obj.get("coverage", {})
     if coverage.get("not_read_reason"):
         summary_lines.append(f"\n_coverage warning: not all diff files were read ({coverage['not_read_reason']})_")
     if usage.get("total_cost_usd") is not None:
         summary_lines.append(f"\n_cost: ${usage['total_cost_usd']:.4f}_")
     summary = "\n".join(summary_lines)
+
+    if not comments:
+        # only refuted (and/or contested) findings -- nothing to anchor inline.
+        # Post the summary (which carries the contested block + the refuted audit
+        # <details>) as one issue comment.
+        api("POST", f"{base}/issues/{args.pr}/comments", args.token, {"body": summary})
+        print(f"posted summary-only review ({len(refuted)} refuted, {len(contested)} contested)")
+        return
 
     try:
         api("POST", f"{base}/pulls/{args.pr}/reviews", args.token, {
@@ -110,7 +182,7 @@ def main():
     except RuntimeError as e:
         print(f"inline review failed ({e}); falling back to a single issue comment", file=sys.stderr)
         fallback = summary + "\n\n" + "\n\n---\n\n".join(
-            f"`{f.get('file')}:{f.get('line')}`\n{format_finding(f)}" for f in findings
+            f"`{f.get('file')}:{f.get('line')}`\n{format_finding(f)}" for f in inline
         )
         api("POST", f"{base}/issues/{args.pr}/comments", args.token, {"body": fallback})
         print("posted fallback issue comment")

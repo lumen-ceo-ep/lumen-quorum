@@ -1,0 +1,208 @@
+name: Quorum Review (role fan-out)
+
+# M3: the multi-role shape of docs/architecture.md sec. 5 -- a planning step, a
+# dynamic matrix with one isolated job per role, and a fan-in job that runs
+# Stage 1 mechanical aggregation (engine/orchestrator/aggregate.py) and posts one
+# combined review.
+#
+# This runs *alongside* quorum-review.yml (the proven M1 single-node path), not
+# instead of it -- flip which one is active once the fan-out has a measured
+# marginal-contribution result (docs/roadmap.md M3 stop condition). Until then
+# it's opt-in via workflow_dispatch only, so it never spends 3x the budget on
+# every PR before it's earned that.
+#
+# Each role job holds only `contents: read`; posting is a separate job with
+# `pull-requests: write`, so no node ever has PR write access
+# (docs/architecture.md sec. 5, 8). Per-node credential isolation (a distinct
+# secret per role) is a further step not taken here -- all role jobs currently
+# share one ANTHROPIC secret.
+#
+# Security (ENG-6 / architecture sec. 8.1): `inputs.pr` and `inputs.roles` are
+# free-text workflow_dispatch fields -- attacker-typed, NOT GitHub-validated like
+# `github.event.pull_request.number`. The `plan` job validates `pr` is a bare
+# integer and fails closed otherwise; every value derived from an input reaches a
+# `run:` script only through `env:`, never `${{ }}` spliced into the script text.
+#
+# NOTE: not yet run end to end (no repo on this engine has PR traffic). The steps
+# mirror quorum-review.yml, which is proven.
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: "PR number to review"
+        required: true
+      roles:
+        description: "comma-separated roles from engine/roles/"
+        default: "correctness,convention,simplification"
+
+permissions:
+  contents: read
+
+concurrency:
+  # inputs.pr is validated in the plan job; this label context is not a shell,
+  # but keep the group stable-ish by only trusting it after that check runs.
+  group: quorum-fanout-${{ github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      pr: ${{ steps.validate.outputs.pr }}
+      roles: ${{ steps.parse.outputs.roles }}
+      base_sha: ${{ steps.sha.outputs.base }}
+      head_sha: ${{ steps.sha.outputs.head }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate inputs
+        id: validate
+        env:
+          PR_IN: ${{ github.event.inputs.pr }}
+        run: |
+          # fail closed on anything that isn't a bare positive integer
+          if ! printf '%s' "$PR_IN" | grep -qE '^[1-9][0-9]*$'; then
+            echo "::error::pr input must be a positive integer, got: $PR_IN"
+            exit 1
+          fi
+          echo "pr=$PR_IN" >> "$GITHUB_OUTPUT"
+
+      - name: Parse roles
+        id: parse
+        env:
+          ROLES_IN: ${{ github.event.inputs.roles }}
+        run: |
+          python3 -c "import json,os,re; rs=[r.strip() for r in os.environ['ROLES_IN'].split(',') if r.strip()]; assert all(re.fullmatch(r'[a-z0-9_-]+', r) for r in rs), rs; print('roles='+json.dumps(rs))" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve PR base/head SHAs
+        id: sha
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ steps.validate.outputs.pr }}
+        run: |
+          python3 engine/orchestrator/resolve_pr.py \
+            --repo "${{ github.repository }}" --pr "$PR" \
+            --api-base "${{ github.api_url }}" | while read -r line; do
+              case "$line" in
+                BASE_SHA=*) echo "base=${line#BASE_SHA=}" >> "$GITHUB_OUTPUT" ;;
+                HEAD_SHA=*) echo "head=${line#HEAD_SHA=}" >> "$GITHUB_OUTPUT" ;;
+              esac
+            done
+
+  node:
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        role: ${{ fromJSON(needs.plan.outputs.roles) }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.plan.outputs.head_sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: npm install -g @anthropic-ai/claude-code
+      - name: Build review input
+        env:
+          ROLE: ${{ matrix.role }}
+          PR: ${{ needs.plan.outputs.pr }}
+          BASE: ${{ needs.plan.outputs.base_sha }}
+          HEAD: ${{ needs.plan.outputs.head_sha }}
+        run: |
+          # workflow_dispatch has no pull_request event payload, so PR title/body
+          # aren't wired here yet -- build_review_input treats their absence as fine.
+          python3 engine/orchestrator/build_review_input.py \
+            --base "$BASE" --head "$HEAD" \
+            --project demo-project --out /tmp/quorum-review \
+            --model claude-sonnet-5 --vendor claude --role "$ROLE" \
+            --pr-number "$PR"
+          cp "engine/roles/${ROLE}.md" /tmp/quorum-review/input/role.md
+      - name: Run node
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: python3 engine/adapters/claude/adapter.py /tmp/quorum-review claude-sonnet-5
+      - uses: actions/upload-artifact@v4
+        with:
+          name: node-${{ matrix.role }}
+          path: /tmp/quorum-review/out/findings.json
+
+  combine:
+    needs: [plan, node]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.plan.outputs.head_sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: npm install -g @anthropic-ai/claude-code
+      - uses: actions/download-artifact@v4
+        with:
+          path: /tmp/nodes
+
+      - name: Rebuild review input (for the adjudicator's diff + knowledge context)
+        env:
+          BASE: ${{ needs.plan.outputs.base_sha }}
+          HEAD: ${{ needs.plan.outputs.head_sha }}
+        run: |
+          python3 engine/orchestrator/build_review_input.py \
+            --base "$BASE" --head "$HEAD" \
+            --project demo-project --out /tmp/quorum-review
+
+      - name: Stage 1 aggregate
+        run: |
+          ARGS=()
+          for d in /tmp/nodes/node-*; do
+            role="${d##*/node-}"
+            ARGS+=(--node "${role}=${d}/findings.json")
+          done
+          python3 engine/orchestrator/aggregate.py "${ARGS[@]}" --out /tmp/aggregate.json
+
+      - name: Stage 2 adjudicate
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: |
+          python3 engine/orchestrator/adjudicate.py \
+            --aggregate /tmp/aggregate.json \
+            --review-dir /tmp/quorum-review \
+            --model claude-sonnet-5 \
+            --out /tmp/adjudicated.json
+
+      - name: Post combined review
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ needs.plan.outputs.pr }}
+        run: |
+          python3 engine/orchestrator/post_review.py \
+            --findings /tmp/adjudicated.json \
+            --repo "${{ github.repository }}" \
+            --pr "$PR" \
+            --api-base "${{ github.api_url }}"
+
+      - name: Upload aggregated + adjudicated output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          # keeps the full Stage 1 + Stage 2 record -- including every refuted
+          # finding and the adjudicator's rationale -- recoverable after the run
+          # (ENG-3). post_review.py only renders a summary of the refuted set.
+          name: quorum-fanout-${{ needs.plan.outputs.pr }}-${{ github.run_id }}
+          path: |
+            /tmp/aggregate.json
+            /tmp/adjudicated.json
+          if-no-files-found: warn
+          retention-days: 30

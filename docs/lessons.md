@@ -5,6 +5,52 @@ them. Not aspirational — every entry here actually happened. Grows over time;
 append new entries rather than editing old ones away, unless a later entry
 genuinely supersedes an earlier one (say so explicitly if it does).
 
+## The self-review loop on a large PR: real bugs, then a timeout wall (2026-09-06)
+
+Running `quorum-self-review.yml` on the ~4 k-line PR that built M2-M4 went
+three rounds:
+
+- **Round 1** — 1 `blocking` + 1 `major`: `${{ github.event.inputs.pr }}`
+  spliced straight into `run:` scripts in `quorum-review-fanout.yml`, exactly
+  the ENG-6 script-injection pattern, with a working `curl | bash` exploit
+  string. A bug the author had consciously rationalised away ("dispatcher has
+  write access, low risk"). Fixed: validate the input, route via `env:`.
+- **Round 2** — 2 `major`: `write_slice()` / the routing fallback both reported
+  `routed_docs` inaccurately (a dead `#anchor` sibling still listed; the
+  whole-file fallback reported `[]`), an ENG-10 audit gap. Fixed + the
+  duplicated assembly block extracted to `route.assemble_knowledge()`.
+- **Round 3** — `status: error`, `claude timed out after 300s`. A real review of
+  a large multi-file diff routinely runs past the hardcoded 5-minute node
+  timeout once it starts reading files. `invoke.py` now defaults to 900 s
+  (`QUORUM_NODE_TIMEOUT` overrides); review workflows bumped to
+  `timeout-minutes: 20`.
+
+**Takeaways**: (1) the reviewer earns its keep — two rounds of genuine bugs,
+severity trending down, zero style noise. (2) A 4 k-line PR is past the
+"glance and approve" size; the honest loop there is review → fix → re-review,
+and that's a signal to write smaller PRs, not a reviewer failure. (3) Timeouts
+sized against the tiny `demo-project/` fixture don't survive a real diff — same
+lesson as the ARG_MAX bug below.
+
+## Self-review caught its first real bug on the PR that introduced it (2026-09-06)
+
+The moment `quorum-self-review.yml` first ran — on the PR adding self-review
+itself — the node crashed: `OSError: [Errno 7] Argument list too long: 'claude'`.
+The adapter (and, after the M4 refactor, `invoke.py`) passed the whole prompt —
+role + constitution + routed knowledge + **the full diff** — as an argv
+parameter (`claude -p "<prompt>"`). Every prior run was against a `demo-project/`
+fixture whose diff is a few lines, so it never approached `ARG_MAX`. A real
+engine PR's diff (thousands of lines) blew straight past it.
+
+**Fix**: the prompt now goes on **stdin** (`subprocess.run(..., input=prompt)`),
+never in argv. Regression-tested with a 500 KB prompt (`tests/test_invoke.py`).
+
+**Takeaway**: the synthetic M0 fixture is small by design, and "small" hid a
+scale bug that only a real, large diff exposes. Dogfooding on the engine's own
+PRs isn't just for collecting M1/M2 data — it exercises input sizes the fixture
+never will. (The Codex adapter has the same argv-prompt shape and the same latent
+bug; it's unverified anyway — fix when it's next touched.)
+
 ## Vendor headless auth can't be assumed from an interactive login working (2026-08-27 to 09-01)
 
 Tried wiring a Codex (OpenAI) adapter for a real adopting project, funded by

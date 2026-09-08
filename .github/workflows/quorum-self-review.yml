@@ -1,24 +1,29 @@
-name: Quorum Review
+name: Quorum Self-Review
 
-# M1 scope: a single self-contained job reviewing changes to this repo's own
-# demo-project (the living, continuously-run demo of the product). Splitting into
-# a real matrix with per-node credential/permission isolation is M3+ (see
-# docs/roadmap.md) -- until then, this one job holds both read (node) and write
-# (posting) scope, which is a known, deliberate M1 simplification, not the target
-# end state described in docs/architecture.md sec. 5.
+# Quorum reviewing its own changes, using engine-knowledge/ as the project.
+# This makes the repo its own first real adopter: every PR touching the engine
+# is a live M1 finding + M2 ledger data point, not a synthetic one (docs/roadmap.md).
+#
+# Same single-job M1 shape as quorum-review.yml (the demo-project reviewer) and
+# the same known simplification: one job holds both node read scope and PR write
+# scope until the M3 matrix split. Runs alongside quorum-review.yml, not instead
+# of it — different path filters, so a PR touching both areas gets both reviews.
 
 on:
   pull_request:
     types: [opened, synchronize, reopened]
     paths:
-      - "demo-project/codebase/**"
+      - "engine/**"
+      - "harness/**"
+      - "engine-knowledge/**"
+      - ".github/workflows/**"
 
 permissions:
   contents: read
   pull-requests: write
 
 concurrency:
-  group: quorum-review-${{ github.event.pull_request.number }}
+  group: quorum-self-review-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 jobs:
@@ -40,8 +45,7 @@ jobs:
 
       - name: Build review input
         env:
-          # PR title/body/author are attacker-controlled -- passed through env,
-          # never interpolated into the script (ENG-6 / architecture sec. 8.1).
+          # untrusted -> env, never interpolated into the script (ENG-6).
           PR_TITLE: ${{ github.event.pull_request.title }}
           PR_BODY: ${{ github.event.pull_request.body }}
           PR_AUTHOR: ${{ github.event.pull_request.user.login }}
@@ -49,26 +53,24 @@ jobs:
           python3 engine/orchestrator/build_review_input.py \
             --base "${{ github.event.pull_request.base.sha }}" \
             --head "${{ github.event.pull_request.head.sha }}" \
-            --project demo-project \
-            --out /tmp/quorum-review \
+            --project engine-knowledge \
+            --out /tmp/quorum-self-review \
             --model claude-sonnet-5 --vendor claude --role generalist \
             --pr-number "${{ github.event.pull_request.number }}" \
             --pr-title "$PR_TITLE" --pr-body "$PR_BODY" --pr-author "$PR_AUTHOR"
 
       - name: Run Claude node
         env:
-          # Either auth mode works: a metered API key, or a subscription-derived
-          # long-lived token from `claude setup-token`. Only one needs to be set.
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-        run: python3 engine/adapters/claude/adapter.py /tmp/quorum-review claude-sonnet-5
+        run: python3 engine/adapters/claude/adapter.py /tmp/quorum-self-review claude-sonnet-5
 
       - name: Post review
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           python3 engine/orchestrator/post_review.py \
-            --findings /tmp/quorum-review/out/findings.json \
+            --findings /tmp/quorum-self-review/out/findings.json \
             --repo "${{ github.repository }}" \
             --pr "${{ github.event.pull_request.number }}" \
             --api-base "${{ github.api_url }}"
@@ -77,6 +79,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: quorum-run-${{ github.event.pull_request.number }}-${{ github.run_id }}
-          path: /tmp/quorum-review
+          name: quorum-self-run-${{ github.event.pull_request.number }}-${{ github.run_id }}
+          path: /tmp/quorum-self-review
           retention-days: 30

@@ -1,0 +1,149 @@
+name: Quorum Feedback Ledger
+
+# M2 instrumentation (docs/roadmap.md M2, docs/architecture.md sec. 9). Runs once
+# per merged PR that a Quorum reviewer looked at -- either the demo-project
+# reviewer (quorum-review.yml) or the engine self-reviewer (quorum-self-review.yml)
+# -- and records what humans did with that PR's findings:
+#
+#   - implicit signal: a blocking/major finding whose cited line merged unchanged
+#     -> verdict "ignored" (a real human decision, even with no reply/reaction).
+#   - explicit signal: replies / reactions on the posted inline comments
+#     -> verdict "accepted" or "corrected".
+#
+# All classification is pure, unit-tested Python (engine/ledger/*, tests/
+# test_ledger.py). This workflow is only the plumbing: work out which reviewer
+# ran, fetch its findings.json, compute the post-review diff, call the capture
+# scripts, commit the appended ledger for that project.
+#
+# M2-demo simplification (like quorum-review.yml's single-job note): the ledger
+# is committed straight back to `main` (demo-project/ledger/ or
+# engine-knowledge/ledger/). A third-party adopter keeps its ledger in its own
+# knowledge repo (docs/architecture.md sec. 1, 5); committing to the reviewed
+# repo's trunk with `contents: write` is the in-repo-adopter shortcut.
+#
+# NOTE: the artifact-fetch and the assemble_threads API path have not yet been
+# exercised against real merged-PR traffic. The steps are standard; that's an
+# inference, not a verified run.
+
+on:
+  pull_request:
+    types: [closed]
+    paths:
+      - "demo-project/codebase/**"
+      - "engine/**"
+      - "harness/**"
+      - "engine-knowledge/**"
+      - ".github/workflows/**"
+
+permissions:
+  contents: write
+  actions: read
+  pull-requests: read
+
+concurrency:
+  group: quorum-ledger-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  ledger:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      REPO: ${{ github.repository }}
+      PR: ${{ github.event.pull_request.number }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+      API_BASE: ${{ github.api_url }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Locate the review run and pick the project
+        id: detect
+        run: |
+          # Prefer the self-review reviewer; fall back to the demo reviewer.
+          for spec in "quorum-self-review.yml:engine-knowledge:engine harness engine-knowledge" \
+                      "quorum-review.yml:demo-project:demo-project/codebase"; do
+            wf="${spec%%:*}"; rest="${spec#*:}"; ledger_dir="${rest%%:*}"; scope="${rest#*:}"
+            run_id=$(gh run list --workflow "$wf" --json databaseId,headSha,conclusion \
+              --jq "[.[] | select(.headSha==\"$HEAD_SHA\" and .conclusion==\"success\")][0].databaseId")
+            if [ -n "$run_id" ] && [ "$run_id" != "null" ]; then
+              rm -rf /tmp/artifact && mkdir -p /tmp/artifact
+              gh run download "$run_id" --dir /tmp/artifact || true
+              found=$(find /tmp/artifact -name findings.json -path '*/out/*' | head -1)
+              if [ -n "$found" ]; then
+                echo "findings=$found" >> "$GITHUB_OUTPUT"
+                echo "ledger=$ledger_dir/ledger/ledger.jsonl" >> "$GITHUB_OUTPUT"
+                echo "proposals=$ledger_dir/ledger/proposals.md" >> "$GITHUB_OUTPUT"
+                echo "scope=$scope" >> "$GITHUB_OUTPUT"
+                echo "dir=$ledger_dir/ledger" >> "$GITHUB_OUTPUT"
+                echo "found=true" >> "$GITHUB_OUTPUT"
+                echo "matched $wf (run $run_id) -> $ledger_dir/ledger"
+                exit 0
+              fi
+            fi
+          done
+          echo "no successful Quorum review run for $HEAD_SHA; nothing to capture"
+          echo "found=false" >> "$GITHUB_OUTPUT"
+
+      - name: Compute post-review diff (reviewed head -> merged state)
+        if: steps.detect.outputs.found == 'true'
+        run: git diff "$HEAD_SHA".."$MERGE_SHA" -- ${{ steps.detect.outputs.scope }} > /tmp/merge.diff || true
+
+      - name: Capture implicit signal (ignored findings)
+        if: steps.detect.outputs.found == 'true'
+        run: |
+          python3 engine/ledger/capture_implicit.py \
+            --findings "${{ steps.detect.outputs.findings }}" \
+            --merge-diff /tmp/merge.diff \
+            --repo "$REPO" --pr "$PR" --run-id "$HEAD_SHA" \
+            --ledger "${{ steps.detect.outputs.ledger }}"
+
+      - name: Capture explicit signal (replies / reactions)
+        if: steps.detect.outputs.found == 'true'
+        run: |
+          python3 engine/ledger/assemble_threads.py \
+            --findings "${{ steps.detect.outputs.findings }}" \
+            --repo "$REPO" --pr "$PR" --api-base "$API_BASE" \
+            --out /tmp/threads.json
+          python3 engine/ledger/capture_explicit.py \
+            --threads /tmp/threads.json \
+            --repo "$REPO" --pr "$PR" --run-id "$HEAD_SHA" \
+            --ledger "${{ steps.detect.outputs.ledger }}"
+
+      - name: Regenerate cluster proposals
+        if: steps.detect.outputs.found == 'true'
+        run: |
+          python3 engine/ledger/promote.py \
+            --ledger "${{ steps.detect.outputs.ledger }}" \
+            --out "${{ steps.detect.outputs.proposals }}"
+
+      - name: Commit ledger
+        if: steps.detect.outputs.found == 'true'
+        run: |
+          DIR="${{ steps.detect.outputs.dir }}"
+          if git diff --quiet -- "$DIR"; then
+            echo "ledger unchanged, nothing to commit"; exit 0
+          fi
+          git config user.name  "quorum-ledger[bot]"
+          git config user.email "quorum-ledger@users.noreply.github.com"
+          git add "$DIR"
+          git commit -m "ledger: record PR #${PR} finding outcomes"
+          git push origin "HEAD:${{ github.event.repository.default_branch }}"
+
+      - name: Upload proposals artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: quorum-ledger-proposals-${{ github.event.pull_request.number }}
+          path: ${{ steps.detect.outputs.proposals }}
+          if-no-files-found: ignore
+          retention-days: 30

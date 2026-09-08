@@ -1,0 +1,34 @@
+# Tier 2 routing for engine self-review: changed-file pattern -> relevant invariants.
+# Same format as demo-project/routes.yaml; consumed by engine/orchestrator/route.py.
+
+routes:
+  - match: "engine/adapters/common.py"
+    docs: [invariants.md#ENG-1, invariants.md#ENG-2, invariants.md#ENG-3, invariants.md#ENG-4]
+  - match: "engine/adapters/*/adapter.py"
+    docs: [invariants.md#ENG-1, invariants.md#ENG-2, invariants.md#ENG-7]
+  - match: "engine/adapters/*/invoke.py"
+    docs: [invariants.md#ENG-2]
+  - match: "engine/orchestrator/aggregate.py"
+    docs: [invariants.md#ENG-3, invariants.md#ENG-4]
+  - match: "engine/orchestrator/adjudicate.py"
+    docs: [invariants.md#ENG-3, invariants.md#ENG-4]
+  - match: "engine/orchestrator/post_review.py"
+    docs: [invariants.md#ENG-5, invariants.md#ENG-3]
+  - match: "engine/orchestrator/build_review_input.py"
+    docs: [invariants.md#ENG-10]
+  - match: "engine/orchestrator/route.py"
+    docs: [invariants.md#ENG-8, invariants.md#ENG-10]
+  - match: "engine/ledger/*.py"
+    docs: [invariants.md#ENG-3, invariants.md#ENG-8]
+  - match: ".github/workflows/*.yml"
+    docs: [invariants.md#ENG-5, invariants.md#ENG-6]
+  - match: "harness/*.py"
+    docs: [invariants.md#ENG-8, invariants.md#ENG-9]
+  - match: "demo-project/*"
+    docs: [invariants.md#ENG-9]
+
+always:
+  - constitution.md
+  - profile.yaml
+
+budget_tokens: 12000

@@ -1,0 +1,10 @@
+# Output conventions for Quorum's self-review.
+
+output:
+  language: en
+  anchor_style: "file:line"
+  style: "concrete-example-first"
+severity_vocab: [blocking, major, minor, nit]
+scope:
+  in: [correctness, convention, simplification]
+  out_of_scope: [commit_message_format, pr_title_format, naming, formatting]

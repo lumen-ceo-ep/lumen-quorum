@@ -104,6 +104,31 @@ in what M1 already claimed:**
   this hardening changed the actual review behavior, confirming it as pure robustness
   work, not a quality regression.
 
+**Hardening pass (2026-09-06), Tier 2 routing:**
+
+- `routes.yaml` was in the schema and the demo project from the start but no code
+  read it — `build_review_input.py` copied the whole `invariants.md` into the "routed"
+  slice. `engine/orchestrator/route.py` now does the real thing: match each changed
+  file against the route globs (at any path depth), extract just the cited markdown
+  sections (`invariants.md#INV-2` → that one `## INV-2` block), and assemble them into
+  `input/project/`. The full KB is copied to `input/project-full/` (Tier 3) and the
+  node prompt points at it for rules that weren't routed. Wired into the live
+  orchestrator and the backtest harness identically. 13 unit tests (`tests/
+  test_routing.py`). An M0 regression run is still pending (needs paid model calls).
+
+**Self-review: the engine is its own first adopter (2026-09-06).** M1's and M2's stop
+conditions both need *a repo with real, ongoing PR traffic* — and this repo has exactly
+one such repo's worth: its own development. `engine-knowledge/` is a real project
+knowledge base (`constitution.md` + `ENG-1..ENG-10` invariants + `routes.yaml`) for
+changes to `engine/` / `harness/` / workflows; `quorum-self-review.yml` runs the M1 node
+on every such PR with `--project engine-knowledge`, and `quorum-ledger.yml` now captures
+outcomes for it too (into `engine-knowledge/ledger/`, real data, not the synthetic
+`demo-project/ledger/` fixture). So from here on, every engine PR — including the M2/M3/M4
+ones — is an M1 finding and an M2 ledger row. `demo-project/` stays the isolated
+knowledge-free M0 fixture (`ENG-9`). Building this also caught a real bug in `route.py`
+(`lstrip("./")` ate the leading dot of `.github/...`, so no workflow file ever routed) —
+regression-tested.
+
 **Still open from the hardening pass, not yet closed out:**
 
 - `quorum-review-command.yml` (the `/review lang=<x>` comment trigger) has only been
@@ -151,6 +176,32 @@ requiring a human to keep score by hand.
 building a consensus layer without any data on what "correct" looks like in practice is
 building something that can't be tuned.
 
+**Implemented (2026-09-06): the mechanism, not yet any data.** `engine/ledger/` plus
+`.github/workflows/quorum-ledger.yml`:
+
+- **Record + store** (`record.py`): append-only JSONL, one entry per
+  finding-per-signal; `finding_key` (stable per posted finding, survives the evidence
+  gate's claim annotation) and `cluster_key` (coarse: file-pattern / category / cited
+  rule); dedup-aware append so re-running a capture can't double-count.
+- **Implicit capture** (`capture_implicit.py`): parses the reviewed-head→merge diff,
+  flags every `blocking`/`major` finding whose cited line (± a small window) is
+  untouched as `ignored`.
+- **Explicit capture** (`capture_explicit.py` + `assemble_threads.py`): maps replies /
+  reactions back to a finding via the HTML marker `post_review.py` now embeds in each
+  comment; keyword classifier, biased toward `corrected` so the dispute rate it reports
+  is an upper bound.
+- **Clustering** (`cluster.py`): groups by `cluster_key` across *distinct PRs* (not
+  records), floor of 3, `accepted` excluded.
+- **Promotion** (`promote.py`): renders a cluster into a human-readable *proposed*
+  knowledge-base change. Never edits `invariants.md`/`constitution.md`.
+- 37 unit tests (`tests/test_ledger.py`), no network, wired into the existing
+  `test.yml`. Full pre-existing suite still green (66 total).
+
+**Still open:** `quorum-ledger.yml`'s artifact fetch and `assemble_threads.py`'s API
+path have not run against a real merged PR — same gap as M1's live workflows, and for
+the same reason (no repo running this has ongoing PR traffic yet). The classification
+core is fully tested; the CI plumbing around it is standard-but-unverified.
+
 ## M3 — Multiple roles, one vendor
 
 Fan out to several role-specialized nodes (correctness, convention-vs-knowledge-base,
@@ -162,6 +213,34 @@ raised them.
 surfaced, later confirmed correct). Drop roles that don't earn their cost before adding
 more.
 
+**Implemented (2026-09-06): the mechanism, no measurement run yet.**
+
+- **Roles** (`engine/roles/`): `correctness`, `convention`, `simplification`, plus the
+  original `generalist`. Each role.md tells the node it's one of several and to stay in
+  its lane.
+- **Stage 1 aggregation** (`engine/orchestrator/aggregate.py`): pure, no model call.
+  Groups findings from every node by `(file, category, line-proximity)`; a cluster
+  carries `raised_by` / `roles_count` and preserves every raw finding under `members`
+  (nothing deleted — architecture sec. 3). An errored node is recorded and contributes
+  nothing; if every node errored the aggregate is `error`, not empty-`ok`; a mix is
+  `partial`. 17 unit tests (`tests/test_aggregate.py`).
+- **Fan-out runner** (`engine/orchestrator/run_roles.py`): sequential local runner —
+  one node per role against the same input, then aggregate. The CI matrix shape is
+  still M3+ work; this keeps the harness and a manual run on one code path meanwhile.
+- **Backtest** (`harness/backtest.py --roles a,b,c`): each with/without-knowledge pass
+  fans out and aggregates, scored identically — so the stop-condition measurement is a
+  diff between two `summary.json` files.
+- **Posting** (`post_review.py`): renders "raised independently by N role(s)" per
+  cluster and a node-failure warning line so a dead node never reads as a clean pass.
+
+- **CI matrix** (`quorum-review-fanout.yml`): plan → dynamic matrix (one isolated
+  `contents: read` job per role) → fan-in job that aggregates and posts one combined
+  review. `workflow_dispatch`-only for now, so it never spends 3× the budget on every
+  PR before it's earned that. Not yet run end to end (no PR traffic), and all role jobs
+  still share one credential — per-node credential isolation is a further step.
+
+**Not done:** the actual marginal-contribution measurement run (needs paid model calls).
+
 ## M4 — Adjudication
 
 Add the Stage 2 adjudicator and the three-bucket (verified/contested/refuted) output.
@@ -170,6 +249,31 @@ Add the Stage 2 adjudicator and the three-bucket (verified/contested/refuted) ou
 findings should not drop. A recall drop means the adjudicator is suppressing real
 findings — exactly the bias problem this project exists to avoid — and is a rollback
 trigger, not a tuning problem.
+
+**Implemented (2026-09-06): the mechanism, no measurement run yet.**
+
+- **`engine/orchestrator/adjudicate.py`** — one model pass over the Stage 1 aggregate
+  that checks each cluster against the actual diff + project knowledge (never against
+  `roles_count`). Two rules enforced in *code*, not the prompt:
+  1. a `refuted` verdict with no `counter_evidence` is downgraded to `contested` — a
+     refutation without a citation is an unsupported opinion (`enforce_counter_reference`);
+  2. nothing is deleted — every cluster keeps its raw `members`, gets an `adjudication`
+     block, and is indexed into `buckets`; refuted ones move bucket, not disappear.
+  A parse failure or an adjudicator error defaults every cluster to `contested` (never
+  silently `verified`/`refuted`).
+- **`post_review.py`** — `verified` → inline comments; `contested` → a visible labelled
+  block, not blocking; `refuted` → a collapsed audit `<details>`, not posted as review
+  noise. Pre-adjudication output still posts everything inline.
+- **Wiring** — `run_roles.py --adjudicate`, `backtest.py --roles --adjudicate` (so the
+  stop-condition check is a diff between two `summary.json` files), and a Stage 2 step
+  in `quorum-review-fanout.yml`.
+- Refactor: `engine/adapters/claude/invoke.py` now holds the one shared headless-Claude
+  call (node + adjudicator); `common.py` stays vendor-free (ENG-2). 15 unit tests
+  (`tests/test_adjudicate.py`), full suite 121.
+
+**Not done:** the precision/recall run against a multi-role + adjudicated corpus (needs
+paid calls). M4 is one adjudicator on one vendor — a second adjudicator, and cross-vendor
+adjudication, are later.
 
 ## M5 — Second vendor
 
