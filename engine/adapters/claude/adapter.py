@@ -16,21 +16,46 @@ from common import SYSTEM_PROMPT, build_prompt, extract_json, postprocess  # noq
 from claude.invoke import invoke, usage_of  # noqa: E402
 
 
+# The model occasionally ends its turn with a prose sentence instead of the bare
+# JSON object the prompt asks for (seen on a large self-review diff). One retry
+# with an explicit "JSON only" nudge recovers it without failing the whole run.
+_RETRY_NUDGE = (
+    "\n\nReturn ONLY the single JSON object described in the output contract -- "
+    "no prose, no summary, no markdown fences, nothing before or after it."
+)
+
+
 def run(review_dir: Path, model: str) -> dict:
     prompt = build_prompt(review_dir)
     workspace = review_dir / "workspace"
 
-    res = invoke(prompt, model=model, cwd=workspace, append_system=SYSTEM_PROMPT)
-    if not res["ok"]:
-        return {"status": "error", "error": res["error"], "findings": []}
+    findings_obj = None
+    last_text = ""
+    usage = {"total_cost_usd": 0.0, "input_tokens": 0, "output_tokens": 0, "cache_read_tokens": 0}
+    for attempt in (1, 2):
+        p = prompt if attempt == 1 else prompt + _RETRY_NUDGE
+        res = invoke(p, model=model, cwd=workspace, append_system=SYSTEM_PROMPT)
+        if not res["ok"]:
+            # attempt 1 may already have spent tokens -- carry them out too.
+            return {"status": "error", "error": res["error"], "findings": [], "usage": usage}
+        # accumulate across every attempt -- a retry's tokens were still spent
+        # (same pattern as adjudicate.py's usage merge).
+        for k, v in usage_of(res["envelope"]).items():
+            usage[k] = (usage[k] or 0) + (v or 0)
+        last_text = res["text"]
+        try:
+            findings_obj = extract_json(last_text)
+            break
+        except ValueError:
+            continue
 
-    try:
-        findings_obj = extract_json(res["text"])
-    except ValueError as e:
-        return {"status": "error", "error": str(e), "raw": res["text"][:2000], "findings": []}
+    if findings_obj is None:
+        return {"status": "error",
+                "error": "could not extract JSON from model output after 2 attempts",
+                "raw": last_text[:2000], "findings": [], "usage": usage}
 
     findings_obj = postprocess(review_dir, findings_obj)
-    findings_obj["usage"] = usage_of(res["envelope"])
+    findings_obj["usage"] = usage
     return findings_obj
 
 
