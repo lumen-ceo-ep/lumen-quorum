@@ -90,8 +90,9 @@ class TestInvokePromptChannel(unittest.TestCase):
         self.assertEqual(out["text"], "the findings")
 
 
-class TestAdapterJsonRetry(unittest.TestCase):
-    """adapter.run() retries once when the model ends with prose instead of JSON."""
+class TestAdapterFileFirst(unittest.TestCase):
+    """adapter.run() reads the node-findings.json file the node writes; the chat
+    message is only a fallback, and it retries once if neither parses."""
 
     def setUp(self):
         spec = importlib.util.spec_from_file_location(
@@ -104,35 +105,64 @@ class TestAdapterJsonRetry(unittest.TestCase):
         (inp / "role.md").write_text("r")
         (inp / "diff.patch").write_text("d")
         (inp / "manifest.json").write_text('{"language":"en"}')
+        self.target = self.tmp / "out" / "node-findings.json"
 
-    def _fake_invoke(self, texts):
+    def _fake_invoke(self, behaviours):
+        """behaviours[i] is called for attempt i+1; it may write self.target and
+        returns the chat text to hand back."""
         seen = []
 
         def fake(prompt, **kw):
             seen.append(prompt)
-            return {"ok": True, "text": texts[min(len(seen) - 1, len(texts) - 1)],
+            return {"ok": True, "text": behaviours[min(len(seen) - 1, len(behaviours) - 1)](),
                     "envelope": {"usage": {}}}
         self.ad.invoke = fake
         return seen
 
-    def test_prose_then_json_recovers(self):
-        seen = self._fake_invoke(["here are the findings", '{"status":"ok","findings":[]}'])
+    def test_file_is_used_over_chat_text(self):
+        def write_file_and_ramble():
+            self.target.write_text('{"status":"ok","findings":[{"file":"a","line":1,'
+                                   '"category":"correctness","severity":"nit","claim":"c"}]}')
+            return "I wrote the findings to the file, here's a summary..."
+        seen = self._fake_invoke([write_file_and_ramble])
         out = self.ad.run(self.tmp, "m")
         self.assertEqual(out["status"], "ok")
-        self.assertEqual(len(seen), 2)
-        self.assertIn(self.ad._RETRY_NUDGE.strip()[:15], seen[1])
+        self.assertEqual(len(out["findings"]), 1)
+        self.assertEqual(len(seen), 1)
 
-    def test_prose_twice_is_clean_error_after_two_attempts(self):
-        seen = self._fake_invoke(["still just prose"])
+    def test_falls_back_to_chat_text_when_no_file(self):
+        seen = self._fake_invoke([lambda: '{"status":"ok","findings":[]}'])
+        out = self.ad.run(self.tmp, "m")
+        self.assertEqual(out["status"], "ok")
+        self.assertEqual(len(seen), 1)
+
+    def test_stale_file_from_prior_run_is_cleared(self):
+        self.target.parent.mkdir(parents=True, exist_ok=True)
+        self.target.write_text('{"status":"ok","findings":[{"file":"STALE","line":1,'
+                               '"category":"correctness","severity":"nit","claim":"old"}]}')
+        seen = self._fake_invoke([lambda: '{"status":"ok","findings":[]}'])  # writes nothing
+        out = self.ad.run(self.tmp, "m")
+        self.assertEqual(out["findings"], [])  # not the stale one
+
+    def test_retry_when_file_and_text_both_bad_then_error(self):
+        seen = self._fake_invoke([lambda: "just prose, no file"])
         out = self.ad.run(self.tmp, "m")
         self.assertEqual(out["status"], "error")
         self.assertEqual(len(seen), 2)
         self.assertIn("2 attempts", out["error"])
 
-    def test_first_attempt_json_does_not_retry(self):
-        seen = self._fake_invoke(['{"status":"ok","findings":[]}'])
-        self.ad.run(self.tmp, "m")
-        self.assertEqual(len(seen), 1)
+    def test_retry_recovers_on_second_attempt(self):
+        calls = {"n": 0}
+
+        def maybe_write():
+            calls["n"] += 1
+            if calls["n"] == 2:
+                self.target.write_text('{"status":"ok","findings":[]}')
+            return "prose"
+        seen = self._fake_invoke([maybe_write])
+        out = self.ad.run(self.tmp, "m")
+        self.assertEqual(out["status"], "ok")
+        self.assertEqual(len(seen), 2)
 
 
 if __name__ == "__main__":

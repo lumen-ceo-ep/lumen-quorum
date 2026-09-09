@@ -74,8 +74,15 @@ review/input/
   project/           # Tier 2: routed knowledge slice for this diff
   project-full/      # Tier 3: full knowledge base, read-only, for search
 review/workspace/    # checked-out PR head, read-only
-review/out/findings.json
+review/out/
+  node-findings.json # the node writes its raw JSON here (its chat reply is ignored)
+  findings.json      # the adapter's post-processed output (evidence gate, coverage, keys)
 ```
+
+A node writes its result to a **file**, not its final message: on a real diff a
+model reliably ends with a prose summary, and parsing that was the top cause of a
+failed run. The adapter falls back to parsing the chat message only if the file
+is missing or unparseable.
 
 `findings.json` schema (abbreviated):
 
