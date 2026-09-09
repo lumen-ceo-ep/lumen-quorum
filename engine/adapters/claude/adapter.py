@@ -25,9 +25,9 @@ from claude.invoke import invoke, usage_of  # noqa: E402
 
 _ZERO_USAGE = {"total_cost_usd": 0.0, "input_tokens": 0, "output_tokens": 0, "cache_read_tokens": 0}
 
-_REFORMAT_SYSTEM = (
-    "You convert a code-review analysis into one JSON object. Output ONLY the JSON "
-    "object -- no prose, no markdown fences, nothing before or after it."
+_REFORMAT_SYSTEM = SYSTEM_PROMPT + (
+    "\n\nFor this call: convert the code-review analysis below into one JSON object. "
+    "Output ONLY the JSON object -- no prose, no markdown fences, nothing else."
 )
 
 
@@ -56,9 +56,12 @@ def run(review_dir: Path, model: str) -> dict:
             "## Output contract\n" + FINDINGS_SCHEMA_HINT
             + "\n\n## Review analysis to convert\n" + review_text
         )
-        # a pure text->JSON transform: no workspace, read-only tools it won't use.
-        res2 = invoke(reformat_prompt, model=model, cwd=review_dir,
-                      append_system=_REFORMAT_SYSTEM)
+        # genuinely tool-less: allowed_tools="" means no --allowedTools flag, so a
+        # headless run cannot use any tool; cwd is an empty dir, not the workspace.
+        reformat_cwd = review_dir / "out"
+        reformat_cwd.mkdir(parents=True, exist_ok=True)
+        res2 = invoke(reformat_prompt, model=model, cwd=reformat_cwd,
+                      append_system=_REFORMAT_SYSTEM, allowed_tools="")
         if res2["ok"]:
             _add_usage(usage, res2["envelope"])
         try:

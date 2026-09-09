@@ -112,7 +112,8 @@ class TestAdapterReformatFallback(unittest.TestCase):
 
         def fake(prompt, **kw):
             ok, text = results[min(len(seen), len(results) - 1)]
-            seen.append({"prompt": prompt, "tools": kw.get("allowed_tools", "DEFAULT")})
+            seen.append({"prompt": prompt, "tools": kw.get("allowed_tools", "DEFAULT"),
+                         "cwd": str(kw.get("cwd", "")), "system": kw.get("append_system", "")})
             return {"ok": ok, "text": text if ok else "",
                     "error": "boom" if not ok else None, "envelope": {"usage": {}}}
         self.ad.invoke = fake
@@ -135,6 +136,20 @@ class TestAdapterReformatFallback(unittest.TestCase):
         # the reformat call is fed the first analysis and asks for the contract
         self.assertIn("Review analysis to convert", seen[1]["prompt"])
         self.assertIn("prose", seen[1]["prompt"])
+
+    def test_reformat_call_is_actually_tool_less_and_off_the_workspace(self):
+        seen = self._fake_invoke([(True, "prose"), (True, '{"status":"ok","findings":[]}')])
+        self.ad.run(self.tmp, "m")
+        reformat = seen[1]
+        self.assertEqual(reformat["tools"], "")                       # no tools headless
+        self.assertNotIn("workspace", reformat["cwd"])                # not the checked-out tree
+        self.assertIn("untrusted data", reformat["system"])           # keeps the injection guard
+
+    def test_node_call_is_read_only(self):
+        seen = self._fake_invoke([(True, '{"status":"ok","findings":[]}')])
+        self.ad.run(self.tmp, "m")
+        self.assertEqual(seen[0]["tools"], "Read Glob Grep")
+        self.assertNotIn("Write", seen[0]["tools"])
 
     def test_reformat_also_fails_is_clean_error(self):
         seen = self._fake_invoke([(True, "prose one"), (True, "still prose")])
