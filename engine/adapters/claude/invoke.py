@@ -23,7 +23,7 @@ DEFAULT_TIMEOUT = int(os.environ.get("QUORUM_NODE_TIMEOUT") or 900)
 
 
 def invoke(prompt: str, *, model: str, cwd, allowed_tools: str = DEFAULT_ALLOWED_TOOLS,
-           append_system: str = None, add_dirs=None, timeout: int = DEFAULT_TIMEOUT) -> dict:
+           append_system: str = None, timeout: int = DEFAULT_TIMEOUT) -> dict:
     cwd = Path(cwd)
     cwd.mkdir(parents=True, exist_ok=True)
 
@@ -34,8 +34,6 @@ def invoke(prompt: str, *, model: str, cwd, allowed_tools: str = DEFAULT_ALLOWED
     cmd = ["claude", "-p", "--output-format", "json", "--model", model]
     if allowed_tools:
         cmd += ["--allowedTools", allowed_tools]
-    for d in add_dirs or []:
-        cmd += ["--add-dir", str(d)]
     if append_system:
         cmd += ["--append-system-prompt", append_system]
 
