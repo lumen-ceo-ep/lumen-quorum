@@ -36,7 +36,8 @@ def run(review_dir: Path, model: str) -> dict:
         p = prompt if attempt == 1 else prompt + _RETRY_NUDGE
         res = invoke(p, model=model, cwd=workspace, append_system=SYSTEM_PROMPT)
         if not res["ok"]:
-            return {"status": "error", "error": res["error"], "findings": []}
+            # attempt 1 may already have spent tokens -- carry them out too.
+            return {"status": "error", "error": res["error"], "findings": [], "usage": usage}
         # accumulate across every attempt -- a retry's tokens were still spent
         # (same pattern as adjudicate.py's usage merge).
         for k, v in usage_of(res["envelope"]).items():

@@ -117,7 +117,12 @@ def main():
 
     role_src = Path(args.role_file) if args.role_file else ROLE_FILE
     shutil.copy(role_src, input_dir / "role.md")
-    role_name = args.role or (Path(args.role_file).stem if args.role_file else "generalist")
+    # the manifest role name must describe the role.md that was actually copied
+    # and hashed (ENG-10) -- the file stem wins over a mismatched --role.
+    role_name = Path(role_src).stem if args.role_file else (args.role or "generalist")
+    if args.role and args.role_file and args.role != role_name:
+        print(f"warning: --role {args.role!r} != --role-file stem {role_name!r}; "
+              f"recording {role_name!r}")
 
     project_dir = Path(args.project)
     constitution = project_dir / "constitution.md"
