@@ -31,11 +31,16 @@ def run(review_dir: Path, model: str) -> dict:
 
     findings_obj = None
     last_text = ""
+    usage = {"total_cost_usd": 0.0, "input_tokens": 0, "output_tokens": 0, "cache_read_tokens": 0}
     for attempt in (1, 2):
         p = prompt if attempt == 1 else prompt + _RETRY_NUDGE
         res = invoke(p, model=model, cwd=workspace, append_system=SYSTEM_PROMPT)
         if not res["ok"]:
             return {"status": "error", "error": res["error"], "findings": []}
+        # accumulate across every attempt -- a retry's tokens were still spent
+        # (same pattern as adjudicate.py's usage merge).
+        for k, v in usage_of(res["envelope"]).items():
+            usage[k] = (usage[k] or 0) + (v or 0)
         last_text = res["text"]
         try:
             findings_obj = extract_json(last_text)
@@ -45,11 +50,11 @@ def run(review_dir: Path, model: str) -> dict:
 
     if findings_obj is None:
         return {"status": "error",
-                "error": f"could not extract JSON from model output after 2 attempts",
-                "raw": last_text[:2000], "findings": []}
+                "error": "could not extract JSON from model output after 2 attempts",
+                "raw": last_text[:2000], "findings": [], "usage": usage}
 
     findings_obj = postprocess(review_dir, findings_obj)
-    findings_obj["usage"] = usage_of(res["envelope"])
+    findings_obj["usage"] = usage
     return findings_obj
 
 
