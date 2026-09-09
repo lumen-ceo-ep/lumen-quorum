@@ -77,6 +77,13 @@ review/workspace/    # checked-out PR head, read-only
 review/out/findings.json
 ```
 
+A node is strictly read-only against the workspace (Read/Glob/Grep only). It
+returns its findings JSON as its final message; on a real diff a model often ends
+with a prose summary instead, so when that first parse fails the adapter runs a
+second, tool-less "reformat this analysis into the findings JSON" call rather than
+failing the run (issue #9). The node never gets a Write tool — the workspace is
+untrusted checked-out code (sec. 8).
+
 `findings.json` schema (abbreviated):
 
 ```json

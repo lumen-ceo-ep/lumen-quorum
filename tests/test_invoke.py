@@ -90,8 +90,9 @@ class TestInvokePromptChannel(unittest.TestCase):
         self.assertEqual(out["text"], "the findings")
 
 
-class TestAdapterJsonRetry(unittest.TestCase):
-    """adapter.run() retries once when the model ends with prose instead of JSON."""
+class TestAdapterReformatFallback(unittest.TestCase):
+    """The node is read-only; when its final message isn't clean JSON the adapter
+    does a second tool-less 'reformat into JSON' call before giving up."""
 
     def setUp(self):
         spec = importlib.util.spec_from_file_location(
@@ -105,34 +106,68 @@ class TestAdapterJsonRetry(unittest.TestCase):
         (inp / "diff.patch").write_text("d")
         (inp / "manifest.json").write_text('{"language":"en"}')
 
-    def _fake_invoke(self, texts):
+    def _fake_invoke(self, results):
+        """results[i] = (ok, text) for call i+1."""
         seen = []
 
         def fake(prompt, **kw):
-            seen.append(prompt)
-            return {"ok": True, "text": texts[min(len(seen) - 1, len(texts) - 1)],
-                    "envelope": {"usage": {}}}
+            ok, text = results[min(len(seen), len(results) - 1)]
+            seen.append({"prompt": prompt, "tools": kw.get("allowed_tools", "DEFAULT"),
+                         "cwd": str(kw.get("cwd", "")), "system": kw.get("append_system", "")})
+            return {"ok": ok, "text": text if ok else "",
+                    "error": "boom" if not ok else None, "envelope": {"usage": {}}}
         self.ad.invoke = fake
         return seen
 
-    def test_prose_then_json_recovers(self):
-        seen = self._fake_invoke(["here are the findings", '{"status":"ok","findings":[]}'])
+    def test_clean_json_first_try_no_reformat(self):
+        seen = self._fake_invoke([(True, '{"status":"ok","findings":[]}')])
+        out = self.ad.run(self.tmp, "m")
+        self.assertEqual(out["status"], "ok")
+        self.assertEqual(len(seen), 1)
+
+    def test_prose_then_reformat_recovers(self):
+        seen = self._fake_invoke([
+            (True, "Here are my findings in prose..."),
+            (True, '{"status":"ok","findings":[]}'),
+        ])
         out = self.ad.run(self.tmp, "m")
         self.assertEqual(out["status"], "ok")
         self.assertEqual(len(seen), 2)
-        self.assertIn(self.ad._RETRY_NUDGE.strip()[:15], seen[1])
+        # the reformat call is fed the first analysis and asks for the contract
+        self.assertIn("Review analysis to convert", seen[1]["prompt"])
+        self.assertIn("prose", seen[1]["prompt"])
 
-    def test_prose_twice_is_clean_error_after_two_attempts(self):
-        seen = self._fake_invoke(["still just prose"])
+    def test_reformat_call_is_actually_tool_less_and_off_the_workspace(self):
+        seen = self._fake_invoke([(True, "prose"), (True, '{"status":"ok","findings":[]}')])
+        self.ad.run(self.tmp, "m")
+        reformat = seen[1]
+        self.assertEqual(reformat["tools"], "")                       # no tools headless
+        self.assertNotIn("workspace", reformat["cwd"])                # not the checked-out tree
+        self.assertIn("untrusted data", reformat["system"])           # keeps the injection guard
+
+    def test_node_call_is_read_only(self):
+        seen = self._fake_invoke([(True, '{"status":"ok","findings":[]}')])
+        self.ad.run(self.tmp, "m")
+        self.assertEqual(seen[0]["tools"], "Read Glob Grep")
+        self.assertNotIn("Write", seen[0]["tools"])
+
+    def test_reformat_also_fails_is_clean_error(self):
+        seen = self._fake_invoke([(True, "prose one"), (True, "still prose")])
         out = self.ad.run(self.tmp, "m")
         self.assertEqual(out["status"], "error")
-        self.assertEqual(len(seen), 2)
-        self.assertIn("2 attempts", out["error"])
+        self.assertIn("reformat pass also failed", out["error"])
+        self.assertEqual(out["raw"][:9], "prose one")
 
-    def test_first_attempt_json_does_not_retry(self):
-        seen = self._fake_invoke(['{"status":"ok","findings":[]}'])
-        self.ad.run(self.tmp, "m")
-        self.assertEqual(len(seen), 1)
+    def test_reformat_call_itself_erroring_is_handled(self):
+        seen = self._fake_invoke([(True, "prose"), (False, "")])
+        out = self.ad.run(self.tmp, "m")
+        self.assertEqual(out["status"], "error")
+
+    def test_first_call_erroring_carries_usage(self):
+        seen = self._fake_invoke([(False, "")])
+        out = self.ad.run(self.tmp, "m")
+        self.assertEqual(out["status"], "error")
+        self.assertIn("usage", out)
 
 
 if __name__ == "__main__":
