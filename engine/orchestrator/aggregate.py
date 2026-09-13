@@ -146,7 +146,8 @@ def aggregate(node_outputs: list, proximity: int = DEFAULT_PROXIMITY) -> dict:
         # like backtest.py print obj.get("error") on any non-"ok" status, and a
         # missing key there silently prints "None" instead of what broke.
         out["error"] = "; ".join(
-            f"{n['role']}: {n['error']}" for n in nodes_meta if n["status"] != "ok"
+            f"{n['role']}: {n['error'] or 'no error detail reported'}"
+            for n in nodes_meta if n["status"] != "ok"
         )
     return out
 

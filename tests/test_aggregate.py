@@ -121,6 +121,13 @@ class TestNodeStatus(unittest.TestCase):
         self.assertEqual(out["status"], "partial")
         self.assertEqual(out["error"], "correctness: boom")
 
+    def test_node_with_error_status_but_no_error_key_is_not_rendered_as_none(self):
+        # regression: a node's own output can be valid JSON with status="error"
+        # and no "error" key -- the summary must not reproduce "role: None".
+        out = aggregate([("correctness", _node([], status="error"))])
+        self.assertNotIn("None", out["error"])
+        self.assertIn("correctness:", out["error"])
+
     def test_ok_status_has_no_error_key(self):
         out = aggregate([("a", _node([]))])
         self.assertNotIn("error", out)
