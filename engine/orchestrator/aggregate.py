@@ -133,7 +133,7 @@ def aggregate(node_outputs: list, proximity: int = DEFAULT_PROXIMITY) -> dict:
     else:
         status = "ok"
 
-    return {
+    out = {
         "status": status,
         "stage": "mechanical-cluster",
         "nodes": nodes_meta,
@@ -141,6 +141,15 @@ def aggregate(node_outputs: list, proximity: int = DEFAULT_PROXIMITY) -> dict:
         "coverage": _merge_coverage(node_outputs),
         "usage": _sum_usage(node_outputs),
     }
+    if status != "ok":
+        # a top-level summary, not just per-node detail in `nodes` -- callers
+        # like backtest.py print obj.get("error") on any non-"ok" status, and a
+        # missing key there silently prints "None" instead of what broke.
+        out["error"] = "; ".join(
+            f"{n['role']}: {n['error'] or 'no error detail reported'}"
+            for n in nodes_meta if n["status"] != "ok"
+        )
+    return out
 
 
 def _merge_coverage(node_outputs: list) -> dict:
