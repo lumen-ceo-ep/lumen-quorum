@@ -114,7 +114,15 @@ in what M1 already claimed:**
   `input/project/`. The full KB is copied to `input/project-full/` (Tier 3) and the
   node prompt points at it for rules that weren't routed. Wired into the live
   orchestrator and the backtest harness identically. 13 unit tests (`tests/
-  test_routing.py`). An M0 regression run is still pending (needs paid model calls).
+  test_routing.py`).
+
+**M0 regression against the routed slice (2026-09-13): passed, identical to the
+original.** `no_knowledge` precision 1.00 / recall 0.25 (tp=1 fn=3 fp=0);
+`with_knowledge` precision 1.00 / recall 1.00 (tp=4 fn=0 fp=0). Same lift as the
+original M0 run (recall +0.75), same zero false positives on the clean-refactor
+and false-positive-trap fixtures. Routing did not regress the result. Cost: ~$0.76
+for the full 12-invocation run (cheaper than the original $1.18 — the routed
+slice is smaller and caching helps).
 
 **Self-review: the engine is its own first adopter (2026-09-06).** M1's and M2's stop
 conditions both need *a repo with real, ongoing PR traffic* — and this repo has exactly
@@ -239,7 +247,17 @@ more.
   PR before it's earned that. Not yet run end to end (no PR traffic), and all role jobs
   still share one credential — per-node credential isolation is a further step.
 
-**Not done:** the actual marginal-contribution measurement run (needs paid model calls).
+**Marginal-contribution measurement (2026-09-13): run, but inconclusive on this
+corpus.** 3-role fan-out (correctness/convention/simplification) scored identically
+to the single generalist node: `with_knowledge` precision 1.00 / recall 1.00
+(tp=4 fn=0 fp=0), zero false positives on the trap fixtures. **No regression, but
+also no demonstrated marginal contribution** — the generalist already catches all
+4 seeded bugs, so there's no gap left for a specialist to uniquely fill. The
+roadmap's actual stop condition ("findings a role alone surfaced, later confirmed
+correct") cannot be evaluated on a 6-fixture corpus sized for M0. Needs either a
+harder/larger corpus or real traffic where the generalist demonstrably misses
+something, before this milestone's question has a real answer. Cost: ~$1.72 for
+the full run (≈2.3× the single-node cost, not the naive 3×, due to caching).
 
 ## M4 — Adjudication
 
@@ -271,9 +289,26 @@ trigger, not a tuning problem.
   call (node + adjudicator); `common.py` stays vendor-free (ENG-2). 15 unit tests
   (`tests/test_adjudicate.py`), full suite 121.
 
-**Not done:** the precision/recall run against a multi-role + adjudicated corpus (needs
-paid calls). M4 is one adjudicator on one vendor — a second adjudicator, and cross-vendor
-adjudication, are later.
+**Precision/recall measurement (2026-09-13): passed the safety check, same
+inconclusive-corpus limit as M3.** 3-role + adjudicate: precision 1.00 / recall
+1.00 (tp=4 fn=0 fp=0) — identical to M3, and critically, **the adjudicator did
+not wrongly refute any of the 4 real, correctly-cited findings** (bucket_counts
+`{verified: 4, contested: 0, refuted: 0}` across the corpus). That's the actual
+rollback trigger this milestone cares about, and it held. Precision can't be
+shown to *rise* since M3 was already 1.00 with nothing to filter out — same
+corpus-size limit as M3. One extra data point: on the false-positive-trap
+fixture the adjudicator additionally verified a genuine `nit`-severity
+simplification finding (`enqueue_bulk` duplicating `enqueue()`'s validation)
+that doesn't count against precision but shows adjudication adds signal, not
+just noise, even on an "expect nothing" fixture. One transient all-3-roles
+`claude exited 1` failure on the first attempt (empty stderr, not reproducible,
+not a rate limit — a direct `claude -p` call succeeded seconds later); a manual
+retry of that one PR/condition completed cleanly. Surfaced and fixed a real
+bug along the way: `aggregate()`'s `error`/`partial` status carried no top-level
+error message, so a caller printing `obj.get("error")` on failure got `None`
+instead of what broke (`engine/orchestrator/aggregate.py`, 3 new tests). Cost:
+~$1.84 for the full run. M4 is one adjudicator on one vendor — a second
+adjudicator, and cross-vendor adjudication, are later.
 
 ## M5 — Second vendor
 

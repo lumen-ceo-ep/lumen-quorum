@@ -103,6 +103,28 @@ class TestNodeStatus(unittest.TestCase):
         self.assertEqual(out["status"], "error")
         self.assertEqual(out["findings"], [])
 
+    def test_error_status_carries_a_top_level_error_message(self):
+        # regression: a caller that prints obj.get("error") on non-"ok" status
+        # used to get None -- there was no summary, only per-node detail in `nodes`.
+        out = aggregate([
+            ("correctness", _node([], status="error", error="claude exited 1")),
+            ("convention", _node([], status="error", error="timed out")),
+        ])
+        self.assertIn("correctness: claude exited 1", out["error"])
+        self.assertIn("convention: timed out", out["error"])
+
+    def test_partial_status_also_carries_error_message(self):
+        out = aggregate([
+            ("correctness", _node([], status="error", error="boom")),
+            ("convention", _node([])),
+        ])
+        self.assertEqual(out["status"], "partial")
+        self.assertEqual(out["error"], "correctness: boom")
+
+    def test_ok_status_has_no_error_key(self):
+        out = aggregate([("a", _node([]))])
+        self.assertNotIn("error", out)
+
     def test_all_ok_is_ok(self):
         out = aggregate([("a", _node([])), ("b", _node([]))])
         self.assertEqual(out["status"], "ok")
