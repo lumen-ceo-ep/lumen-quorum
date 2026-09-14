@@ -1,0 +1,41 @@
+--- a/queue/__init__.py
++++ b/queue/__init__.py
+@@ -0,0 +1,2 @@
++from .enqueue import Task, count_pending, enqueue
++from .retry import retry, retry_many
+--- a/queue/enqueue.py
++++ b/queue/enqueue.py
+@@ -26,3 +26,8 @@
+     task = Task(task_id=task_id, priority=priority, state=TaskState.PENDING)
+     queue.append(task)
+     return task
++
++
++def count_pending(queue) -> int:
++    """Return the number of PENDING tasks currently in the queue."""
++    return sum(1 for t in queue if t.state == TaskState.PENDING)
+--- a/queue/retry.py
++++ b/queue/retry.py
+@@ -1,8 +1,22 @@
+ """Retry path for FAILED tasks."""
+ 
++import uuid
++
+ from .lifecycle import TaskState, transition
+ 
+ 
+ def retry(queue, task) -> None:
+     """Re-queue a FAILED task by moving it back to PENDING."""
+     transition(task, TaskState.PENDING)
++
++
++def retry_many(queue, tasks) -> None:
++    """Re-queue several FAILED tasks in one batch call.
++
++    Each retried task is assigned a fresh task_id so that concurrent retries
++    submitted in the same batch can never collide on identifier, then the
++    task is moved back to PENDING the same way a single retry() would.
++    """
++    for task in tasks:
++        task.task_id = str(uuid.uuid4())
++        transition(task, TaskState.PENDING)
