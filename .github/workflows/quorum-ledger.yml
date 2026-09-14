@@ -69,29 +69,41 @@ jobs:
       - name: Locate the review run and pick the project
         id: detect
         run: |
-          # Prefer the self-review reviewer; fall back to the demo reviewer.
-          for spec in "quorum-self-review.yml:engine-knowledge:engine harness engine-knowledge" \
-                      "quorum-review.yml:demo-project:demo-project/codebase"; do
-            wf="${spec%%:*}"; rest="${spec#*:}"; ledger_dir="${rest%%:*}"; scope="${rest#*:}"
-            run_id=$(gh run list --workflow "$wf" --json databaseId,headSha,conclusion \
-              --jq "[.[] | select(.headSha==\"$HEAD_SHA\" and .conclusion==\"success\")][0].databaseId")
-            if [ -n "$run_id" ] && [ "$run_id" != "null" ]; then
-              rm -rf /tmp/artifact && mkdir -p /tmp/artifact
-              gh run download "$run_id" --dir /tmp/artifact || true
-              found=$(find /tmp/artifact -name findings.json -path '*/out/*' | head -1)
-              if [ -n "$found" ]; then
-                echo "findings=$found" >> "$GITHUB_OUTPUT"
-                echo "ledger=$ledger_dir/ledger/ledger.jsonl" >> "$GITHUB_OUTPUT"
-                echo "proposals=$ledger_dir/ledger/proposals.md" >> "$GITHUB_OUTPUT"
-                echo "scope=$scope" >> "$GITHUB_OUTPUT"
-                echo "dir=$ledger_dir/ledger" >> "$GITHUB_OUTPUT"
-                echo "found=true" >> "$GITHUB_OUTPUT"
-                echo "matched $wf (run $run_id) -> $ledger_dir/ledger"
-                exit 0
+          # The review workflow (quorum-self-review.yml / quorum-review.yml) and
+          # this one both fire off the same pull_request event with no ordering
+          # guarantee between them -- a PR merged right as its own review workflow
+          # is still finishing is a real, unavoidable race, not a corner case.
+          # Poll for a few minutes rather than checking once.
+          try_find() {
+            for spec in "quorum-self-review.yml:engine-knowledge:engine harness engine-knowledge" \
+                        "quorum-review.yml:demo-project:demo-project/codebase"; do
+              wf="${spec%%:*}"; rest="${spec#*:}"; ledger_dir="${rest%%:*}"; scope="${rest#*:}"
+              run_id=$(gh run list --workflow "$wf" --json databaseId,headSha,conclusion \
+                --jq "[.[] | select(.headSha==\"$HEAD_SHA\" and .conclusion==\"success\")][0].databaseId")
+              if [ -n "$run_id" ] && [ "$run_id" != "null" ]; then
+                rm -rf /tmp/artifact && mkdir -p /tmp/artifact
+                gh run download "$run_id" --dir /tmp/artifact || true
+                found=$(find /tmp/artifact -name findings.json -path '*/out/*' | head -1)
+                if [ -n "$found" ]; then
+                  echo "findings=$found" >> "$GITHUB_OUTPUT"
+                  echo "ledger=$ledger_dir/ledger/ledger.jsonl" >> "$GITHUB_OUTPUT"
+                  echo "proposals=$ledger_dir/ledger/proposals.md" >> "$GITHUB_OUTPUT"
+                  echo "scope=$scope" >> "$GITHUB_OUTPUT"
+                  echo "dir=$ledger_dir/ledger" >> "$GITHUB_OUTPUT"
+                  echo "found=true" >> "$GITHUB_OUTPUT"
+                  echo "matched $wf (run $run_id) -> $ledger_dir/ledger"
+                  return 0
+                fi
               fi
-            fi
+            done
+            return 1
+          }
+          for i in 1 2 3 4 5 6; do
+            if try_find; then exit 0; fi
+            echo "no successful Quorum review run for $HEAD_SHA yet (attempt $i/6); waiting 30s"
+            sleep 30
           done
-          echo "no successful Quorum review run for $HEAD_SHA; nothing to capture"
+          echo "no successful Quorum review run for $HEAD_SHA after polling; nothing to capture"
           echo "found=false" >> "$GITHUB_OUTPUT"
 
       - name: Compute post-review diff (reviewed head -> merged state)
@@ -145,7 +157,12 @@ jobs:
           git push origin "HEAD:${{ github.event.repository.default_branch }}"
 
       - name: Upload proposals artifact
-        if: always()
+        # not just a leftover-on-failure guard: with no findings.json located,
+        # steps.detect.outputs.proposals is empty, and upload-artifact treats an
+        # empty `path` as a hard input error ("Input required and not supplied"),
+        # failing the whole job over what is actually a legitimate "nothing to
+        # capture" outcome.
+        if: steps.detect.outputs.found == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: quorum-ledger-proposals-${{ github.event.pull_request.number }}
