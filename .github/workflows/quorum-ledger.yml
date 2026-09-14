@@ -48,7 +48,14 @@ jobs:
   ledger:
     if: github.event.pull_request.merged == true
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # The polling loop below sleeps up to ~24 min waiting for the review workflow
+    # (own timeout-minutes: 20 is the real ceiling), plus per-attempt `gh run
+    # list` overhead (up to 48 attempts -- API latency/throttling isn't free),
+    # plus checkout/setup before and capture/commit after a late match. Give this
+    # real headroom rather than a tight margin -- a job hitting *its own* timeout
+    # mid-poll is the identical false-failure class this PR exists to remove,
+    # just one layer up (self-review caught this after the first, tighter bound).
+    timeout-minutes: 45
     env:
       REPO: ${{ github.repository }}
       PR: ${{ github.event.pull_request.number }}
@@ -69,29 +76,46 @@ jobs:
       - name: Locate the review run and pick the project
         id: detect
         run: |
-          # Prefer the self-review reviewer; fall back to the demo reviewer.
-          for spec in "quorum-self-review.yml:engine-knowledge:engine harness engine-knowledge" \
-                      "quorum-review.yml:demo-project:demo-project/codebase"; do
-            wf="${spec%%:*}"; rest="${spec#*:}"; ledger_dir="${rest%%:*}"; scope="${rest#*:}"
-            run_id=$(gh run list --workflow "$wf" --json databaseId,headSha,conclusion \
-              --jq "[.[] | select(.headSha==\"$HEAD_SHA\" and .conclusion==\"success\")][0].databaseId")
-            if [ -n "$run_id" ] && [ "$run_id" != "null" ]; then
-              rm -rf /tmp/artifact && mkdir -p /tmp/artifact
-              gh run download "$run_id" --dir /tmp/artifact || true
-              found=$(find /tmp/artifact -name findings.json -path '*/out/*' | head -1)
-              if [ -n "$found" ]; then
-                echo "findings=$found" >> "$GITHUB_OUTPUT"
-                echo "ledger=$ledger_dir/ledger/ledger.jsonl" >> "$GITHUB_OUTPUT"
-                echo "proposals=$ledger_dir/ledger/proposals.md" >> "$GITHUB_OUTPUT"
-                echo "scope=$scope" >> "$GITHUB_OUTPUT"
-                echo "dir=$ledger_dir/ledger" >> "$GITHUB_OUTPUT"
-                echo "found=true" >> "$GITHUB_OUTPUT"
-                echo "matched $wf (run $run_id) -> $ledger_dir/ledger"
-                exit 0
+          # The review workflow (quorum-self-review.yml / quorum-review.yml) and
+          # this one both fire off the same pull_request event with no ordering
+          # guarantee between them -- a PR merged right as its own review workflow
+          # is still finishing is a real, unavoidable race, not a corner case.
+          # Poll for as long as that workflow's own timeout-minutes: 20 allows it
+          # to still be running, not just a few minutes (self-review MAJOR: a
+          # too-short poll only narrows the race instead of closing it, and a
+          # large diff legitimately uses most of that 20 minutes -- it's why the
+          # node timeout itself was widened to 900s earlier).
+          try_find() {
+            for spec in "quorum-self-review.yml:engine-knowledge:engine harness engine-knowledge" \
+                        "quorum-review.yml:demo-project:demo-project/codebase"; do
+              wf="${spec%%:*}"; rest="${spec#*:}"; ledger_dir="${rest%%:*}"; scope="${rest#*:}"
+              run_id=$(gh run list --workflow "$wf" --json databaseId,headSha,conclusion \
+                --jq "[.[] | select(.headSha==\"$HEAD_SHA\" and .conclusion==\"success\")][0].databaseId")
+              if [ -n "$run_id" ] && [ "$run_id" != "null" ]; then
+                rm -rf /tmp/artifact && mkdir -p /tmp/artifact
+                gh run download "$run_id" --dir /tmp/artifact || true
+                found=$(find /tmp/artifact -name findings.json -path '*/out/*' | head -1)
+                if [ -n "$found" ]; then
+                  echo "findings=$found" >> "$GITHUB_OUTPUT"
+                  echo "ledger=$ledger_dir/ledger/ledger.jsonl" >> "$GITHUB_OUTPUT"
+                  echo "proposals=$ledger_dir/ledger/proposals.md" >> "$GITHUB_OUTPUT"
+                  echo "scope=$scope" >> "$GITHUB_OUTPUT"
+                  echo "dir=$ledger_dir/ledger" >> "$GITHUB_OUTPUT"
+                  echo "found=true" >> "$GITHUB_OUTPUT"
+                  echo "matched $wf (run $run_id) -> $ledger_dir/ledger"
+                  return 0
+                fi
               fi
-            fi
+            done
+            return 1
+          }
+          attempts=48  # 48 * 30s = 24 min, past the review workflows' own 20-min ceiling
+          for i in $(seq 1 "$attempts"); do
+            if try_find; then exit 0; fi
+            echo "no successful Quorum review run for $HEAD_SHA yet (attempt $i/$attempts); waiting 30s"
+            sleep 30
           done
-          echo "no successful Quorum review run for $HEAD_SHA; nothing to capture"
+          echo "no successful Quorum review run for $HEAD_SHA after polling; nothing to capture"
           echo "found=false" >> "$GITHUB_OUTPUT"
 
       - name: Compute post-review diff (reviewed head -> merged state)
@@ -145,7 +169,16 @@ jobs:
           git push origin "HEAD:${{ github.event.repository.default_branch }}"
 
       - name: Upload proposals artifact
-        if: always()
+        # Two things this condition has to do at once:
+        #  - always() so this still runs (and the computed proposals.md is
+        #    recoverable) even if a later step like "Commit ledger" fails --
+        #    a bare `if: steps.detect...` implicitly ANDs in success(), which
+        #    would silently drop that recovery path (self-review MAJOR on this PR).
+        #  - && found=='true' so it's skipped, not crashed, when there's genuinely
+        #    nothing to upload: an empty `path` is a hard input error for
+        #    actions/upload-artifact@v4 ("Input required and not supplied"),
+        #    which is what turned a legitimate no-op into a failed job originally.
+        if: always() && steps.detect.outputs.found == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: quorum-ledger-proposals-${{ github.event.pull_request.number }}
