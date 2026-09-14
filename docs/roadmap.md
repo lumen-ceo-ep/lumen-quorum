@@ -259,6 +259,32 @@ harder/larger corpus or real traffic where the generalist demonstrably misses
 something, before this milestone's question has a real answer. Cost: ~$1.72 for
 the full run (≈2.3× the single-node cost, not the naive 3×, due to caching).
 
+**A harder fixture, and marginal contribution on an unexpected axis (2026-09-14).**
+Added `demo-project/example-pr/pr-07-batch-retry-noisy-diff`: the same INV-3
+violation as pr-03, but as the only defect inside a 3-file, noisier diff with two
+unrelated correct helpers and a docstring arguing for the violation as intentional
+— built to give a specialist role a real chance to catch something a generalist,
+juggling everything, might not. Result: **still no differentiation on that
+axis** — generalist and 3-role fan-out both caught it cleanly (correctness *and*
+convention independently, from different angles); a frontier single-pass model
+just doesn't miss much on this corpus. But the `simplification` role independently
+caught a genuine, unintentional bug in the fixture's own code — `retry_many()`
+duplicates the `FAILED→PENDING` transition inline instead of calling `retry()` —
+that the generalist, the fixture's own `ground_truth.json`, and the other two
+roles all missed. **That is real marginal contribution — just not the one this
+fixture was built to demonstrate**, and it's invisible to `backtest.py`'s current
+scoring, which only checks a fixed `expected_findings` list and has no way to
+credit a correct finding outside it (a real methodology gap, not just a fixture
+gap). Recorded in `pr-07`'s own `ground_truth.json`. Cost: ~$1.4 for this run.
+
+Net read on M3 so far: two rounds of trying to *construct* a fixture that proves
+the value case have both come back "no gap on the intended axis, real value on an
+unintended one." That pattern itself is informative — it may mean this question
+is better answered by real traffic (where genuine misses aren't authored in
+advance) than by more synthetic fixture design, and/or that `backtest.py` needs a
+way to score "useful finding outside expected_findings" before another
+constructed fixture is worth building.
+
 ## M4 — Adjudication
 
 Add the Stage 2 adjudicator and the three-bucket (verified/contested/refuted) output.
