@@ -157,12 +157,16 @@ jobs:
           git push origin "HEAD:${{ github.event.repository.default_branch }}"
 
       - name: Upload proposals artifact
-        # not just a leftover-on-failure guard: with no findings.json located,
-        # steps.detect.outputs.proposals is empty, and upload-artifact treats an
-        # empty `path` as a hard input error ("Input required and not supplied"),
-        # failing the whole job over what is actually a legitimate "nothing to
-        # capture" outcome.
-        if: steps.detect.outputs.found == 'true'
+        # Two things this condition has to do at once:
+        #  - always() so this still runs (and the computed proposals.md is
+        #    recoverable) even if a later step like "Commit ledger" fails --
+        #    a bare `if: steps.detect...` implicitly ANDs in success(), which
+        #    would silently drop that recovery path (self-review MAJOR on this PR).
+        #  - && found=='true' so it's skipped, not crashed, when there's genuinely
+        #    nothing to upload: an empty `path` is a hard input error for
+        #    actions/upload-artifact@v4 ("Input required and not supplied"),
+        #    which is what turned a legitimate no-op into a failed job originally.
+        if: always() && steps.detect.outputs.found == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: quorum-ledger-proposals-${{ github.event.pull_request.number }}
