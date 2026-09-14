@@ -48,10 +48,14 @@ jobs:
   ledger:
     if: github.event.pull_request.merged == true
     runs-on: ubuntu-latest
-    # The polling loop below waits up to ~24 min for the review workflow (whose
-    # own timeout-minutes: 20 is the real ceiling) to finish; this job's timeout
-    # needs room for that plus setup and the capture/commit steps after.
-    timeout-minutes: 30
+    # The polling loop below sleeps up to ~24 min waiting for the review workflow
+    # (own timeout-minutes: 20 is the real ceiling), plus per-attempt `gh run
+    # list` overhead (up to 48 attempts -- API latency/throttling isn't free),
+    # plus checkout/setup before and capture/commit after a late match. Give this
+    # real headroom rather than a tight margin -- a job hitting *its own* timeout
+    # mid-poll is the identical false-failure class this PR exists to remove,
+    # just one layer up (self-review caught this after the first, tighter bound).
+    timeout-minutes: 45
     env:
       REPO: ${{ github.repository }}
       PR: ${{ github.event.pull_request.number }}
