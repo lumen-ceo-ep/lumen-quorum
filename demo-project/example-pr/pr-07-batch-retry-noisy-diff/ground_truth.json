@@ -1,0 +1,11 @@
+{
+  "expected_findings": [
+    {
+      "file": "queue/retry.py",
+      "category": "correctness",
+      "min_severity": "blocking",
+      "cites": ["INV-3"],
+      "reason": "retry_many() assigns each task a fresh task_id via uuid4 instead of reusing the original, breaking downstream dedupe on task_id -- the same violation as pr-03, but here it's the only defect in a 3-file, 30-line diff that also adds two unrelated, correct helpers (count_pending, __init__ re-exports) and ships with a docstring that argues for the violation as an intentional design choice ('to avoid id collisions'). Built to test whether a role fanning out narrows in on this specific defect any more reliably than a generalist reading the whole diff at once (docs/roadmap.md M3 stop condition) -- the M0-sized corpus's single-defect, single-file diffs couldn't test this."
+    }
+  ]
+}
